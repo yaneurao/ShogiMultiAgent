@@ -50,6 +50,8 @@ PLAYWRIGHT_MODULE=/path/to/node_modules/playwright xvfb-run -a node tests/partic
 
 ## Windows x64 のビルド
 
+アプリを更新したら Windows x64 版もビルドし、出力先を更新する。既存の実行ファイルが使用中で置き換えられない場合は別フォルダに出力し、利用者にその場所を知らせる。配布 ZIP は明示的な依頼がない限り作らない。
+
 Linux からのクロスビルドには、Rust の x86_64-pc-windows-gnu ターゲット、MinGW、Wine、Node.js 22 以上を用意する。Wine は Windows 実行ファイルへのアイコン設定に必要。
 
 ~~~sh
