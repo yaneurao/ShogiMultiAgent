@@ -33,12 +33,12 @@ for line in sys.stdin:
    while True:
     event=json.loads(p.stdout.readline())
     if event['event']=='analysis_update':break
-   assert (event['depth'],event['seldepth'],event['score'],event['bound'],event['nps'],event['pv'])==(8,15,'321','++',12345,['7g7f','3c3d']),event
+   assert (event['depth'],event['seldepth'],event['score'],event['bound'],event['nps'],event['pv'])==(8,15,'321','--',12345,['7g7f','3c3d']),event
    updates=[]
    while len(updates)<2:
     event=json.loads(p.stdout.readline())
     if event['event']=='analysis_update':updates.append(event)
-   assert [(e['depth'],e['bound'],e['nps']) for e in updates]==[(9,'--',23456),(10,None,34567)],updates
+   assert [(e['depth'],e['bound'],e['nps']) for e in updates]==[(9,'++',23456),(10,None,34567)],updates
    conn.settimeout(.2)
    try: assert not conn.recv(1024), 'bestmove was sent before the live evaluation'
    except socket.timeout: pass

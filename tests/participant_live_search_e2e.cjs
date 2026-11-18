@@ -26,9 +26,9 @@ for line in sys.stdin:
   await page.waitForFunction(()=>document.querySelectorAll('.live-search-row').length===2);
   assert.equal(await page.locator('#live-search-mode').textContent(),'待機中');
   const rows=await page.locator('.live-search-row').allTextContents();
-  assert.match(rows[0],/33\/56.*35.*--.*234567.*２六歩/);
-  assert.match(rows[1],/32\/55.*42.*\+\+.*123456.*７六歩/);
-  assert(!rows[1].includes('２五歩'));
+  assert.match(rows[0],/33\/56.*35\+\+.*234567.*２六歩/);
+  assert.match(rows[1],/32\/55.*42--.*123456.*７六歩/);
+  assert(!rows[1].includes('２五歩'));assert(rows.every(row=>!row.includes('Bound')));
   const geometry=await page.evaluate(()=>{const pane=document.querySelector('#live-search'),graph=document.querySelector('#analysis');graph.hidden=false;const before=[pane.getBoundingClientRect().height,graph.getBoundingClientRect().top];renderLiveSearch({ponder:false,search:{mode:'thinking',rows:Array(50).fill({depth:1,pv:[]})}});const after=[pane.getBoundingClientRect().height,graph.getBoundingClientRect().top];return {before,after,scroll:document.querySelector('#live-search-rows').scrollHeight>document.querySelector('#live-search-rows').clientHeight};});
   assert(Math.abs(geometry.before[0]-geometry.after[0])<1&&Math.abs(geometry.before[1]-geometry.after[1])<1,JSON.stringify(geometry));assert(geometry.scroll);
   socket.write('+7776FU,T0\n');await page.waitForFunction(async()=>(await window.arena.state()).sessions[0].ply===1);assert.equal((await page.evaluate(async()=>(await window.arena.state()).sessions[0].search.rows.length)),2);

@@ -928,7 +928,7 @@ impl Analysis {
             if let Some(value) = fields.get(i + 1).and_then(|v| v.parse().ok()) { self.nps = Some(value); }
         }
         if let Some(i) = fields.iter().position(|v| *v == "score") {
-            self.bound = match fields.get(i + 3).copied() { Some("lowerbound") => Some("++"), Some("upperbound") => Some("--"), _ => None };
+            self.bound = match fields.get(i + 3).copied() { Some("lowerbound") => Some("--"), Some("upperbound") => Some("++"), _ => None };
             if let (Some(kind), Some(value)) = (fields.get(i + 1), fields.get(i + 2)) {
                 let parsed = value.parse::<i32>().ok().or_else(|| {
                     if *kind == "mate" {
