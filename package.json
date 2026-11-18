@@ -6,7 +6,7 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "package:win": "electron-packager . ShogiMultiAgent --platform=win32 --arch=x64 --icon=app/assets/icon.ico --out=target/apps/shogimultiagent --overwrite --no-asar --ignore='^/(dist|target|adapter|tests|spec|scripts|node_modules.partial|node_modules/\\.cache)(/|$)'"
+    "package:win": "electron-packager . ShogiMultiAgent --platform=win32 --arch=x64 --icon=app/assets/icon.ico --out=target/apps/shogimultiagent --overwrite --no-asar --ignore='^/(dist|target|adapter|tests|spec|scripts|docs|node_modules.partial|node_modules/\\.cache)(/|$)'"
   },
   "devDependencies": {
     "@electron/packager": "19.0.1",
