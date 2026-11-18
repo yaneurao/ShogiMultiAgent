@@ -1,0 +1,16 @@
+name: CI
+on: [push, pull_request]
+jobs:
+  agent:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - run: cargo test --locked --manifest-path agent-build/Cargo.toml --target-dir target
+      - run: cargo build --locked --manifest-path agent-build/Cargo.toml --target-dir target
+      - run: python tests/usi_agent_ponder_e2e.py
+      - run: python tests/usi_agent_ponder_live_e2e.py
+      - run: python tests/usi_agent_live_e2e.py

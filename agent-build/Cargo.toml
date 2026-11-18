@@ -1,0 +1,13 @@
+[package]
+name = "shogizone-participant-agent"
+version = "0.1.0"
+edition = "2024"
+[workspace]
+[dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "sync", "time", "io-util", "process", "fs"] }
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+serde_json = "1"
+rshogi-csa = { git = "https://github.com/SH11235/rshogi", rev = "4311bae5888253373973e2420b9ca9edfa8c7943" }
+rshogi-core = { git = "https://github.com/SH11235/rshogi", rev = "4311bae5888253373973e2420b9ca9edfa8c7943", default-features = false }
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"

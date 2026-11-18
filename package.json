@@ -1,0 +1,16 @@
+{
+  "name": "shogimultiagent",
+  "version": "0.1.0",
+  "description": "USIエンジン対局参加アプリ",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "package:win": "electron-packager . ShogiMultiAgent --platform=win32 --arch=x64 --icon=assets/icon.ico --out=target/apps/shogimultiagent --overwrite --no-asar --ignore='^/(dist|target|agent-build|src|tests|spec|node_modules.partial|node_modules/\\.cache)(/|$)'"
+  },
+  "devDependencies": {
+    "@electron/packager": "19.0.1",
+    "electron": "45.0.0"
+  },
+  "productName": "ShogiMultiAgent"
+}

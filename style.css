@@ -1,0 +1,81 @@
+:root{font-family:'Yu Gothic UI','Meiryo',sans-serif;color:#1e2937;background:#f3f6f8;font-size:14px}*{box-sizing:border-box}body{margin:0}header{height:68px;background:#fff;border-bottom:1px solid #dce3e9;display:flex;align-items:center;justify-content:space-between;padding:0 28px}header>div{display:flex;align-items:center;gap:11px}header b{font-size:19px}header small{color:#60717b}.brand{display:grid;place-items:center;background:#167a70;color:white;border-radius:8px;width:38px;height:38px;font-size:21px}main{max-width:1700px;margin:0 auto;padding:24px 28px 60px}.panel{background:#fff;border:1px solid #dce3e9;border-radius:10px;margin-bottom:20px;box-shadow:0 2px 8px #1e293708;overflow:hidden}.heading{display:flex;justify-content:space-between;align-items:center;padding:19px 22px}h1,h2{font-size:18px;margin:0}h3{margin:0 0 12px;font-size:14px}p{color:#62727c;margin:6px 0 0}button,input,textarea{font:inherit}button{cursor:pointer;border:1px solid #cbd6dd;background:#e3ecea;color:#263b45;border-radius:6px;padding:8px 12px;white-space:nowrap}button:hover{background:#eaf3f2}button:disabled{opacity:.45;cursor:not-allowed}.primary{background:#126d64;color:white;border-color:#126d64;font-weight:bold}.primary:hover{background:#0d594f}.danger{color:#a33230;border-color:#e7b5b2}.badge{background:#e4f3ef;color:#126d64;border-radius:20px;padding:5px 12px;font-weight:bold}.tablewrap{overflow:auto}table{border-collapse:collapse;width:100%;min-width:750px}th{background:#edf3f4;color:#52646d;text-align:center;font-size:12px}th,td{padding:10px 12px;border-top:1px solid #e8eef0}tbody tr:nth-child(even){background:#f8fafb}td:last-child{text-align:center;white-space:nowrap}td button+button{margin-left:5px}tbody tr.selectable{cursor:pointer}tbody tr.selected{background:#e4f4ef}.state{font-weight:bold;color:#246f68}.state.failed{color:#b3312e}.state.playing{color:#ad4f35}#message,.notice{padding:13px 16px;margin-bottom:16px;border-radius:7px;background:#e4f4ef;color:#255d53}.notice{background:#fff3d9;color:#6d4a15}.error{color:#b02626!important}#message.error{background:#fff0ef}.tabs{display:flex;gap:2px;border-bottom:1px solid #dbe5e6;padding:0 18px;overflow:auto}.tabs button{border-radius:6px 6px 0 0;border-bottom:0}.tabs button.active{background:#d9eee9;color:#12665c;font-weight:bold}.detail-grid{display:grid;grid-template-columns:minmax(300px,1fr) minmax(300px,1fr);gap:20px;padding:20px}.detail-title{font-weight:bold;margin-bottom:8px}.board,.log{white-space:pre-wrap;font-family:Consolas,monospace;background:#f4f6f6;border:1px solid #dde5e5;border-radius:7px;padding:14px;line-height:1.5}.board{min-height:200px}.log{height:260px;overflow:auto;margin:0}dialog{border:0;border-radius:10px;padding:0;box-shadow:0 10px 50px #0004;width:min(760px,94vw)}dialog::backdrop{background:#162a3370}form{padding:24px}.dialog-title{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}.dialog-title button{border:0;font-size:22px;padding:0 6px}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.form-grid label{display:grid;gap:6px;font-weight:bold}.form-grid .full{grid-column:1/-1}input,textarea{border:1px solid #bdccd3;border-radius:6px;padding:9px;width:100%;font-weight:normal}input:focus,textarea:focus{outline:2px solid #8ac7bd;border-color:#14776b}.check{display:flex!important;align-items:center;gap:8px!important;padding-top:20px;font-weight:normal!important}.check input{width:auto}.file-field{display:flex;gap:8px}.actions{display:flex;justify-content:flex-end;gap:8px;margin-top:20px}@media(max-width:850px){.detail-grid{grid-template-columns:1fr}main{padding:16px}header{padding:0 16px}}
+
+.host-field{display:flex;gap:8px;min-width:0}.host-field select{font:inherit;border:1px solid #bdccd3;border-radius:6px;padding:8px;width:125px;flex:none;background:#fff}.host-field input{min-width:0}.profile-error{white-space:normal;text-align:left;margin-top:7px;max-width:350px;overflow-wrap:anywhere}
+
+.view-tabs{display:flex;gap:4px;border-bottom:1px solid #c8d8d7;margin-bottom:20px}.view-tabs button{border:0;border-radius:7px 7px 0 0;background:transparent;padding:11px 20px;color:#52646d;font-weight:bold}.view-tabs button.active{background:#fff;color:#126d64;box-shadow:0 -2px 0 #168274 inset}.view-tabs button:hover{background:#e6f1ef}.field-help{font-weight:normal;color:#62727c}
+/* Replay viewer */
+button.stop{background:#176c78;border-color:#176c78;color:#fff;font-weight:bold}button.stop:hover{background:#11545d}button.danger{background:#a83634;border-color:#a83634;color:#fff;font-weight:bold}button.danger:hover{background:#802522}button.stop:disabled,button.danger:disabled{opacity:1;background:#e1e5e7;border-color:#d2dadd;color:#76828a;cursor:not-allowed}
+.detail-grid{grid-template-columns:minmax(400px,730px) minmax(240px,1fr)}.game-empty{padding:30px;background:#f4f6f6;border-radius:6px}.players{font-weight:bold;margin:4px 0 9px}.board-layout{display:grid;grid-template-columns:minmax(52px,1fr) minmax(230px,5fr) minmax(52px,1fr);gap:5px;align-items:start}.shogi-board{display:grid;grid-template-columns:repeat(9,1fr);aspect-ratio:1;background:#dcb774 url('assets/wood-board.jpg') center/100% 100%;border:2px solid #604622;box-shadow:0 2px 5px #0003}.square{display:grid;place-items:center;border-right:1px solid #604622;border-bottom:1px solid #604622;min-width:0}.square:nth-child(9n){border-right:0}.square:nth-last-child(-n+9){border-bottom:0}.piece{display:grid;place-items:center;aspect-ratio:0.85;width:84%;height:87%;font-family:serif;font-size:clamp(15px,2.3vw,31px);font-weight:700;color:#1e1710;background:#f5d994;clip-path:polygon(50% 0,94% 22%,100% 100%,0 100%,6% 22%);filter:drop-shadow(0 1px 1px #0006);line-height:1}.piece.white{transform:rotate(180deg)}.piece.promoted{color:#a32923}.hand{background:#ead4a9;border:1px solid #bba477;border-radius:3px;padding:4px;min-height:80px}.hand-label{font-size:11px;text-align:center;color:#59472c}.hand-pieces{display:flex;flex-wrap:wrap;gap:3px}.hand-item{display:inline-flex;align-items:end}.hand-item .piece{width:26px;height:32px;font-size:19px}.hand-item b{font-size:12px}.game-controls{display:grid;grid-template-columns:repeat(3,1fr) 58px repeat(3,1fr);gap:4px;margin:12px 0}.game-controls button{padding:8px 2px}.game-controls input{text-align:center;min-width:0;padding:4px}.clocks,.analysis{margin-top:9px;overflow-wrap:anywhere}.analysis{font-size:13px;color:#405159}.graph-heading{margin:16px 0 4px}#graph{display:block;width:100%;height:auto;background:#fafcfc;border:1px solid #dce5e4}.graph-grid{stroke:#cfdad9;stroke-width:1}.graph-label{fill:#5a696b;font-size:11px}.graph-line{fill:none;stroke:#147f75;stroke-width:2}.graph-dot{fill:#147f75;cursor:pointer}.graph-current{stroke:#8f6464;stroke-width:1;pointer-events:none}@media(max-width:850px){.detail-grid{grid-template-columns:1fr}}
+/* The source board image already contains grid lines; use its wood texture per cell. */
+.shogi-board{grid-template-rows:repeat(9,minmax(0,1fr));min-width:0;background:#e9bc6f;overflow:hidden}.square{min-width:0;min-height:0;overflow:hidden;background-color:#e9bc6f;background-image:url('assets/wood-board.jpg');background-size:847.368421% 936.521739%;background-position:4.225352% 2.598753%}.piece{min-width:0;min-height:0}.piece.photo-piece{background-image:url('assets/wood-pieces-v3.png');background-repeat:no-repeat;background-color:transparent;color:transparent;font-size:0;filter:none}.hand-item .photo-piece{font-size:0}.viewer-options{display:flex;justify-content:flex-end;margin:8px 0 0}.viewer-options label{display:flex;align-items:center;gap:7px;font-size:12px;color:#52646d}.viewer-options select{font:inherit;padding:5px;border:1px solid #bdccd3;border-radius:5px;background:#fff}#graph{background:#ffffee}.graph-grid{stroke:#bdbcae;stroke-dasharray:5 4}.graph-zero,.graph-axis{stroke:#9a998a;stroke-width:1}.graph-label{fill:#45483e;font:10px ui-monospace,monospace}.graph-line{stroke-width:2}.graph-line.side-0{stroke:#dc5918}.graph-line.side-1{stroke:#264276}.graph-dot.side-0{fill:#dc5918}.graph-dot.side-1{fill:#264276}.time-area.side-0{fill:#dc5918;fill-opacity:.10}.time-area.side-1{fill:#264276;fill-opacity:.10}.graph-current{stroke:#d59828;stroke-dasharray:4 3}
+.detail-title,.players{display:flex;align-items:center;flex-wrap:wrap;gap:6px 12px}.detail-player{color:#214d48;font-weight:700}.detail-host{color:#63747c;font-weight:400;font-size:12px}.detail-status{color:#145d55;background:#e2f1ed;border-radius:4px;padding:3px 7px;font-size:12px}.detail-status.stopping{color:#805012;background:#fff0d2}.detail-status.failed{color:#9c2925;background:#fce5e3}.detail-status.playing{color:#9b3e22;background:#fbeae2}.player-black{color:#a54415}.player-white{color:#264c80}.player-ply{color:#41545c;font-weight:500;font-variant-numeric:tabular-nums}
+/* Keep the board and both stands within approximately half the window. */
+.detail-grid{grid-template-columns:minmax(0,1fr) minmax(240px,1fr)}
+.detail-grid>div{min-width:0}
+.board-layout{grid-template-columns:minmax(58px,1fr) minmax(0,5fr) minmax(58px,1fr);align-items:stretch}
+.shogi-board{container-type:inline-size}
+.shogi-board .piece:not(.photo-piece){font-size:7cqw}
+.shogi-board .piece.alphabet.promoted{font-size:5.9cqw}
+.hand{height:clamp(260px,70%,360px);min-height:0;display:flex;flex-direction:column;overflow:hidden}
+#hand-white{align-self:start}
+#hand-black{align-self:end}
+.hand-pieces{flex:1;display:flex;flex-direction:column;flex-wrap:nowrap;align-items:center;justify-content:space-evenly;gap:1px;min-height:0}
+.hand-item{flex:0 1 auto;min-height:0;max-width:100%;align-items:center}
+.hand-item .piece{flex:none}
+.hand-item b{font-variant-numeric:tabular-nums}
+@media(max-width:850px){.detail-grid{grid-template-columns:minmax(0,1fr)}.board-layout{max-width:600px}}
+
+#sessions td.numeric{text-align:right;font-variant-numeric:tabular-nums}
+#records tr.win{background:#e9f7ec}#records tr.loss{background:#fdecea}#records tr.invalid{background:#e7eaed;color:#53616a}#records tr.selfplay,#records tr.draw{background:#fff}#records tr.selected{outline:2px solid #378478;outline-offset:-2px}#records td.numeric{text-align:right;font-variant-numeric:tabular-nums}
+
+/* Board and stands use the same scale, including when the window is resized. */
+.hand{height:var(--stand-height,260px)}
+.hand-item .piece{width:var(--hand-piece-width,26px);height:var(--hand-piece-height,32px);font-size:var(--hand-piece-font,19px)}
+.hand-item .piece.alphabet.promoted{font-size:calc(var(--hand-piece-font,19px)*.84)}
+.hand-item .piece.photo-piece{font-size:0}
+/* Long principal variations scroll within the panel; the graph stays in place. */
+.analysis{height:96px;overflow:auto;white-space:pre-wrap;overscroll-behavior:contain;border:1px solid #dce5e4;background:#f8faf9;border-radius:5px;padding:8px;line-height:1.6}
+
+.shogi-board .square.last-move{background-color:#a0a0a0;background-image:none;box-shadow:none}
+
+.confirm-warning{display:inline-block;margin-left:8px;color:#9c2925;white-space:normal}
+/* Compact, paginated game-record list. */
+.records-toolbar,.records-pagination,.record-confirm{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 18px}.records-toolbar{border-top:1px solid #e8eef0}.records-toolbar label{display:flex;align-items:center;gap:6px}.records-toolbar select{font:inherit;padding:5px 8px;border:1px solid #bdccd3;border-radius:5px;background:#fff}.record-confirm{background:#fff0e8;color:#87351e}.record-confirm[hidden]{display:none}.records-action-error{margin:0;padding:4px 18px 8px}.records-table th,.records-table td{padding:4px 8px;line-height:1.3;white-space:nowrap}.records-table button{padding:3px 7px}.records-table input[type=checkbox]{width:auto;padding:0;margin:0}.records-table td:first-child{text-align:center}.records-pagination{justify-content:flex-end}.records-pagination button{padding:4px 10px}
+
+/* 一覧と画面上部の余白を抑え、盤面までのスクロールを短くする。 */
+header{height:50px;padding:0 20px}header .brand{width:32px;height:32px;font-size:18px}main{padding:10px 20px 40px}.view-tabs{margin-bottom:10px}.view-tabs button{padding:7px 16px}.panel{margin-bottom:10px}.heading{padding:10px 14px}#view-participation .tablewrap th,#view-participation .tablewrap td{padding:4px 8px;line-height:1.3;white-space:nowrap}#sessions button{padding:3px 7px}@media(max-width:850px){header{padding:0 12px}main{padding:8px 12px 30px}}
+
+#sessions .stop,#sessions .session-join{width:5.5em;text-align:center}
+#sessions .session-force,#sessions .session-close{width:5.5em;text-align:center}
+
+.detail-side{min-width:0}.detail-side .analysis[hidden]{display:none}
+
+#view-settings .tablewrap th,#view-settings .tablewrap td{padding:4px 8px;line-height:1.3}#profiles button{padding:3px 7px}
+
+.record-confirm label{display:inline-flex;align-items:center;gap:5px}.record-confirm input[type=checkbox]{width:auto;margin:0;padding:0}
+
+/* 数値と操作は必要な幅に留め、残りを名前の列に割り当てる。 */
+.sessions-table .session-name{width:33.333%}.sessions-table .session-compact{width:1%}
+
+.session-heading-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.session-action-error{padding:0 14px 8px;margin:0}
+
+.players-row{display:flex;align-items:center;justify-content:space-between;gap:4px 12px;flex-wrap:wrap}.players-row .players,.players-row .clocks{margin:4px 0 9px}.players-row .clocks{font-size:12px;font-variant-numeric:tabular-nums}#side-graph[hidden]{display:none}
+/* 操作列はボタン分だけにし、余白を内容のある列に配分する。 */
+.profiles-table .compact,.records-table .compact{width:1%}.profiles-table td:last-child,.records-table td:last-child{white-space:nowrap}.profiles-table input[type=checkbox]{width:auto;padding:0;margin:0}
+.log{min-width:0;max-width:100%;overflow-wrap:anywhere;word-break:break-word}
+.hand-item{position:relative}.hand-item b{position:absolute;left:100%;bottom:0;white-space:nowrap}
+
+/* 色で対局中と選択中を独立して表す。 */
+#tabs button{background:#e8edef;color:#334852;border:1px solid #b7c5cb;border-bottom:0}
+#tabs button.playing{background:#ae501f;color:#fff;border-color:#893610}
+#tabs button.active{box-shadow:inset 0 -4px #145fc0;font-weight:700}
+#tabs button.active:not(.playing){background:#dceafb;color:#124c8b;border-color:#80a6cc}
+#tabs button.playing:hover{background:#873711}
+#sessions td.session-side{text-align:center}
+
+#records tr.record-row{cursor:pointer}
+
+.form-grid label.ponder-check{display:flex;align-items:center;gap:8px;font-weight:normal}.ponder-check input{width:auto;margin:0;padding:0}
+
+/* 進捗ログと、タブごとの現在の探索情報。 */
+#detail-log .log{height:190px}.live-search{margin:10px 0;border:1px solid #cbdcd9;background:#f3f8f7;border-radius:6px;padding:8px;min-width:0}.live-search h3{margin:0 0 4px}.live-search h3 span{font-weight:normal;color:#126d64}.live-search #live-search-pv{max-height:5em;overflow:auto;overflow-wrap:anywhere;line-height:1.5}
