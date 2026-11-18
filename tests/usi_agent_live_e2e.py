@@ -14,7 +14,7 @@ for line in sys.stdin:
  elif line=='isready': print('readyok',flush=True)
  elif line.startswith('go '):
   sys.stdout.buffer.write(b'info string \\x82\\xa0\\n');sys.stdout.flush()
-  print('info depth 8 seldepth 15 score cp 321 lowerbound nps 12345 pv 7g7f 3c3d',flush=True)
+  print('info depth 8 seldepth 15 time 2345 nodes 3333 score cp 321 lowerbound nps 12345 pv 7g7f 3c3d',flush=True)
   print('info depth 9 seldepth 17 score cp 222 upperbound nps 23456 pv 2g2f 8c8d',flush=True)
   print('info depth 10 seldepth 20 score cp 200 nps 34567 pv 7g7f 3c3d',flush=True)
   time.sleep(1)
@@ -33,6 +33,7 @@ for line in sys.stdin:
    while True:
     event=json.loads(p.stdout.readline())
     if event['event']=='analysis_update':break
+   assert event['time_ms']==2345 and event['nodes']==3333,event
    assert (event['depth'],event['seldepth'],event['score'],event['bound'],event['nps'],event['pv'])==(8,15,'321','--',12345,['7g7f','3c3d']),event
    updates=[]
    while len(updates)<2:

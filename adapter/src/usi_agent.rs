@@ -883,13 +883,18 @@ fn format_board(position: &rshogi_csa::Position) -> String {
 // Each PV line is a separate snapshot; do not combine bounds or values from
 // earlier lines, nor display informational lines without a principal variation.
 fn emit_live_analysis(line: &str, mode: &str, sfen: &str, side: char) {
-    if !line.starts_with("info ") || line.split_whitespace().nth(1) == Some("string") || !line.split_whitespace().any(|v| v == "pv") { return; }
+    if !line.starts_with("info ") || line.split_whitespace().nth(1) == Some("string") { return; }
+    let fields: Vec<_> = line.split_whitespace().collect();
+    let number = |name| fields.iter().position(|v| *v == name).and_then(|i| fields.get(i + 1)).and_then(|v| v.parse::<u64>().ok());
+    let nodes = number("nodes");
+    let nps = number("nps");
+    if nodes.is_some() || nps.is_some() { app_event(serde_json::json!({"event":"search_metrics","nodes":nodes,"nps":nps})); }
+    if !fields.contains(&"pv") { return; }
     let mut live = Analysis::default();
     live.update_info(line, false);
     if live.pv.is_empty() { return; }
-    let fields: Vec<_> = line.split_whitespace().collect();
     let primary = !fields.windows(2).any(|v| v[0] == "multipv" && v[1] != "1");
-    app_event(serde_json::json!({"event":"analysis_update","primary":primary,"mode":mode,"depth":live.depth,"seldepth":live.seldepth,"nps":live.nps,"bound":live.bound,"sfen":sfen,"score":live.display_score,"evaluation":live.score.map(|v|if side=='+'{v}else{v.saturating_neg()}),"pv":live.pv}));
+    app_event(serde_json::json!({"event":"analysis_update","primary":primary,"mode":mode,"depth":live.depth,"seldepth":live.seldepth,"time_ms":number("time"),"nodes":nodes,"nps":nps,"bound":live.bound,"sfen":sfen,"score":live.display_score,"evaluation":live.score.map(|v|if side=='+'{v}else{v.saturating_neg()}),"pv":live.pv}));
 }
 
 #[derive(Default)]

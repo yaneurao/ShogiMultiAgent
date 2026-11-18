@@ -10,8 +10,9 @@ for line in sys.stdin:
  if line=='usi': print('usiok',flush=True)
  elif line=='isready': print('readyok',flush=True)
  elif line.startswith('go '):
-  print('info depth 32 seldepth 55 score cp 42 lowerbound nps 123456 pv 7g7f 3c3d 2g2f 8c8d 2f2e',flush=True)
-  print('info depth 33 seldepth 56 score cp 35 upperbound nps 234567 pv 2g2f 8c8d',flush=True)
+  print('info depth 32 seldepth 55 time 2345 nodes 1234 score cp 42 lowerbound nps 123456 pv 7g7f 3c3d 2g2f 8c8d 2f2e',flush=True)
+  print('info depth 33 seldepth 56 time 12034 nodes 9876 score cp 35 upperbound nps 234567 pv 2g2f 8c8d',flush=True)
+  print('info nodes 11111 nps 345678',flush=True)
   print('bestmove 7g7f',flush=True)
  elif line=='quit': break
 `);fs.chmodSync(engine,0o755);
@@ -25,11 +26,14 @@ for line in sys.stdin:
   await page.waitForFunction(async()=>{const s=(await window.arena.state()).sessions[0];return s?.search?.rows?.length===2&&s.search.mode==='waiting';});
   await page.waitForFunction(()=>document.querySelectorAll('.live-search-row').length===2);
   assert.equal(await page.locator('#live-search-mode').textContent(),'待機中');
-  const rows=await page.locator('.live-search-row').allTextContents();
-  assert.match(rows[0],/33\/56.*35\+\+.*234567.*２六歩/);
-  assert.match(rows[1],/32\/55.*42--.*123456.*７六歩/);
-  assert(!rows[1].includes('２五歩'));assert(rows.every(row=>!row.includes('Bound')));
-  const geometry=await page.evaluate(()=>{const pane=document.querySelector('#live-search'),graph=document.querySelector('#analysis');graph.hidden=false;const before=[pane.getBoundingClientRect().height,graph.getBoundingClientRect().top];renderLiveSearch({ponder:false,search:{mode:'thinking',rows:Array(50).fill({depth:1,pv:[]})}});const after=[pane.getBoundingClientRect().height,graph.getBoundingClientRect().top];return {before,after,scroll:document.querySelector('#live-search-rows').scrollHeight>document.querySelector('#live-search-rows').clientHeight};});
+  const cells=await page.locator('.live-search-row').evaluateAll(rows=>rows.map(row=>[...row.children].map(cell=>cell.textContent)));
+  assert.deepEqual(cells[0].slice(0,4),['0:12','33/56','35','++']);
+  assert.deepEqual(cells[1].slice(0,4),['0:02','32/55','42','--']);
+  assert.match(cells[0][4],/２六歩/);assert(!cells[1][4].includes('２五歩'));
+  assert.equal(await page.locator('#live-search-nodes').textContent(),'探索局面数: 11,111');assert.equal(await page.locator('#live-search-nps').textContent(),'nps: 345,678');
+  assert(!((await page.locator('#live-search').textContent()).includes('Bound')));
+  const columns=await page.locator('.live-search-row').evaluateAll(rows=>rows.map(row=>[...row.children].map(cell=>cell.getBoundingClientRect().left)));assert.deepEqual(columns[0],columns[1]);
+  const geometry=await page.evaluate(()=>{const pane=document.querySelector('#live-search'),graph=document.querySelector('#analysis');graph.hidden=false;const before=[pane.getBoundingClientRect().height,graph.getBoundingClientRect().top];renderLiveSearch({ponder:false,search:{mode:'thinking',rows:Array(50).fill({depth:1,pv:[]})}});const after=[pane.getBoundingClientRect().height,graph.getBoundingClientRect().top];return {before,after,scroll:document.querySelector('.live-search-scroll').scrollHeight>document.querySelector('.live-search-scroll').clientHeight};});
   assert(Math.abs(geometry.before[0]-geometry.after[0])<1&&Math.abs(geometry.before[1]-geometry.after[1])<1,JSON.stringify(geometry));assert(geometry.scroll);
   socket.write('+7776FU,T0\n');await page.waitForFunction(async()=>(await window.arena.state()).sessions[0].ply===1);assert.equal((await page.evaluate(async()=>(await window.arena.state()).sessions[0].search.rows.length)),2);
   console.log('PASS: unpondered rapid PV updates, ordering, bounds, four moves, fixed layout and waiting display');
