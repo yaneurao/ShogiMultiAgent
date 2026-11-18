@@ -67,10 +67,12 @@ header{height:50px;padding:0 20px}header .brand{width:32px;height:32px;font-size
 
 /* 色で対局中と選択中を独立して表す。 */
 #tabs button{background:#e8edef;color:#334852;border:1px solid #b7c5cb;border-bottom:0}
-#tabs button.playing{background:#ae501f;color:#fff;border-color:#893610}
+#tabs button.playing{background:#d8eee9;color:#16574f;border-color:#9bc9be}
 #tabs button.active{box-shadow:inset 0 -4px #145fc0;font-weight:700}
 #tabs button.active:not(.playing){background:#dceafb;color:#124c8b;border-color:#80a6cc}
-#tabs button.playing:hover{background:#873711}
+#tabs button.playing:hover{background:#c6e6de}
+#tabs button.active.playing{background:#176c64;color:#fff;border-color:#10534c;box-shadow:inset 0 -4px #8cd8c9}
+#tabs button.active.playing:hover{background:#105b54}
 #sessions td.session-side{text-align:center}
 
 #records tr.record-row{cursor:pointer}
