@@ -11,7 +11,7 @@ Windows x64で、USIエンジンをShogiZoneやfloodgateなどのCSA対局サー
 
 ## ビルド
 
-LinuxからWindows x64へクロスビルドする場合、Rustの `x86_64-pc-windows-gnu` ターゲット、MinGW、Wine（Windows実行ファイルへアイコンを書き込むため）、Node.js 22以上が必要です。`npm ci` をリポジトリ直下で実行した後、`./build-windows.sh` を実行します。配布物は `target/apps/shogimultiagent/ShogiMultiAgent-win32-x64/` に作られます。フォルダ全体を配布してください。
+LinuxからWindows x64へクロスビルドする場合、Rustの `x86_64-pc-windows-gnu` ターゲット、MinGW、Wine（Windows実行ファイルへアイコンを書き込むため）、Node.js 22以上が必要です。`npm ci` をリポジトリ直下で実行した後、`./scripts/build-windows.sh` を実行します。配布物は `target/apps/shogimultiagent/ShogiMultiAgent-win32-x64/` に作られます。フォルダ全体を配布してください。
 
 CSAの時間単位は現在 `Time_Unit:1sec`、時間遅延は `Delay:0` に対応しています。秒読みと時間加算の併用には対応していません。未対応の条件を通知された場合は、誤った持ち時間で対局しないよう参加を停止します。
 
@@ -19,6 +19,6 @@ CSAの時間単位は現在 `Time_Unit:1sec`、時間遅延は `Delay:0` に対�
 
 接続後は30秒ごとにCSAの空行を送信し、無通信による切断を防ぎます。ログイン応答または対局開始通知が30秒以内にない場合は再接続し、ログイン拒否の場合は理由を表示して停止します。エンジンの診断文にUTF-8以外のバイトが含まれる場合は代替文字で表示します。
 
-`src/usi_agent.rs` は ShogiZone の同名ファイルから独立したコピーです。共通部分の修正時は両プロジェクトへの適用を確認してください。設定・棋譜の保存場所は独立前と同じです。
+`adapter/src/usi_agent.rs` は ShogiZone の同名ファイルから独立したコピーです。共通部分の修正時は両プロジェクトへの適用を確認してください。設定・棋譜の保存場所は独立前と同じです。
 
 開発・引き継ぎ資料は [spec/](spec/README.md) を参照してください。

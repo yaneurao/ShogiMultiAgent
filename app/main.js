@@ -79,7 +79,7 @@ function eventFor(s,e){
  if(s.game&&['game_started','move'].includes(e.event))queueCheckpoint(s,e.event==='game_started'?'start':'move');
  if(s.game&&['game_started','move','game_finished'].includes(e.event)){s.game.revision=(s.gameRevision=(s.gameRevision||0)+1);if(windowRef&&!windowRef.isDestroyed())windowRef.webContents.send('game-event',s.id,e.event,s.game.revision,e.event==='move'?s.game.frames.at(-1):null);}if(s.log.length>500)s.log.splice(0,s.log.length-500);notify();
 }
-function agentPath(){return app.isPackaged?path.join(process.resourcesPath,'app','agent',process.platform==='win32'?'usi-agent3.exe':'usi-agent'):path.join(__dirname,'agent',process.platform==='win32'?'usi-agent3.exe':'usi-agent');}
+function agentPath(){return app.isPackaged?path.join(process.resourcesPath,'app','agent',process.platform==='win32'?'usi-agent3.exe':'usi-agent'):path.join(__dirname,'..','agent',process.platform==='win32'?'usi-agent3.exe':'usi-agent');}
 async function start(id){
  const profile=profiles.find(p=>p.id===id);if(!profile)throw Error('接続設定が見つかりません。');
  if(startingProfiles.has(id)||[...sessions.values()].some(s=>s.profileId===id&&s.child))throw Error('この設定はすでに参加中です。');
@@ -104,7 +104,7 @@ app.whenReady().then(async()=>{
  try{const value=JSON.parse(await fs.readFile(file(),'utf8'));if(Array.isArray(value))profiles=value;}catch(e){if(e.code!=='ENOENT'){dialog.showErrorBox('設定を読み込めません',e.message);app.quit();return;}}
 
  windowRef=new BrowserWindow({width:1350,height:860,minWidth:720,minHeight:560,title:'ShogiMultiAgent',icon:path.join(__dirname,'assets','icon.png'),webPreferences:{preload:path.join(__dirname,'preload.js'),contextIsolation:true,nodeIntegration:false,sandbox:true}});
- windowRef.setMenuBarVisibility(false);windowRef.loadFile('index.html');
+ windowRef.setMenuBarVisibility(false);windowRef.loadFile(path.join(__dirname,'index.html'));
  windowRef.on('close',e=>{if(!closing&&(startingProfiles.size||[...sessions.values()].some(s=>s.child))){e.preventDefault();windowRef.webContents.send('close-requested');}});
  ipcMain.handle('state',()=>state());
  ipcMain.handle('records',()=>recordsList());

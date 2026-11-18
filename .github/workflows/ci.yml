@@ -9,8 +9,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.x'
-      - run: cargo test --locked --manifest-path agent-build/Cargo.toml --target-dir target
-      - run: cargo build --locked --manifest-path agent-build/Cargo.toml --target-dir target
+      - run: cargo test --locked --manifest-path adapter/Cargo.toml --target-dir target
+      - run: cargo build --locked --manifest-path adapter/Cargo.toml --target-dir target
       - run: python tests/usi_agent_ponder_e2e.py
       - run: python tests/usi_agent_ponder_live_e2e.py
       - run: python tests/usi_agent_live_e2e.py

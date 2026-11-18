@@ -2,16 +2,16 @@
 
 ## 必要な環境
 
-Node.js 22 以上、npm、Rust（edition 2024 対応）、Python 3 を使用する。Cargo の依存関係は agent-build/Cargo.lock、Node.js の依存関係は package-lock.json で固定する。rshogi は Cargo.toml に記載された Git リビジョンから取得する。
+Node.js 22 以上、npm、Rust（edition 2024 対応）、Python 3 を使用する。Cargo の依存関係は adapter/Cargo.lock、Node.js の依存関係は package-lock.json で固定する。rshogi は Cargo.toml に記載された Git リビジョンから取得する。
 
 最初にリポジトリ直下で次を実行する。
 
 ~~~sh
 npm ci
-cargo build --locked --manifest-path agent-build/Cargo.toml --target-dir target
+cargo build --locked --manifest-path adapter/Cargo.toml --target-dir target
 ~~~
 
-Linux で Electron を開発起動する場合、main.js は agent/usi-agent を起動するため、ビルドしたアダプターをそこに配置する。
+Linux で Electron を開発起動する場合、app/main.js は agent/usi-agent を起動するため、ビルドしたアダプターをそこに配置する。
 
 ~~~sh
 mkdir -p agent
@@ -26,8 +26,8 @@ Linux 起動は開発・検証用であり、配布対象としている環境�
 基本テストはリポジトリ直下から実行する。CI は Rust の単体テスト、アダプターのビルドと一部の通信テストを実行する。
 
 ~~~sh
-cargo test --locked --manifest-path agent-build/Cargo.toml --target-dir target
-cargo build --locked --manifest-path agent-build/Cargo.toml --target-dir target
+cargo test --locked --manifest-path adapter/Cargo.toml --target-dir target
+cargo build --locked --manifest-path adapter/Cargo.toml --target-dir target
 python3 tests/usi_agent_ponder_e2e.py
 python3 tests/usi_agent_ponder_live_e2e.py
 python3 tests/usi_agent_live_e2e.py
@@ -51,10 +51,10 @@ Linux からのクロスビルドには、Rust の x86_64-pc-windows-gnu ター�
 ~~~sh
 rustup target add x86_64-pc-windows-gnu
 npm ci
-./build-windows.sh
+./scripts/build-windows.sh
 ~~~
 
-ビルドスクリプトは Rust アダプターをビルドし、agent/usi-agent3.exe に配置してから Electron をパッケージ化する。アプリはその名前を参照するため、変更時は main.js と build-windows.sh の両方を更新する。出力は target/apps/shogimultiagent/ShogiMultiAgent-win32-x64/。実行ファイルだけでは動かないため、配布時はフォルダ全体が必要。
+ビルドスクリプトは Rust アダプターをビルドし、agent/usi-agent3.exe に配置してから Electron をパッケージ化する。アプリはその名前を参照するため、変更時は app/main.js と scripts/build-windows.sh の両方を更新する。出力は target/apps/shogimultiagent/ShogiMultiAgent-win32-x64/。実行ファイルだけでは動かないため、配布時はフォルダ全体が必要。
 
 既存の実行ファイルが使用中で上書きできない場合は、稼働中のものを壊さず、別名・別フォルダへ出力する。配布 ZIP は明示的に求められない限り作らない。公開前には Windows 上で実際に起動し、エンジン参加・先読み・終了予約・棋譜保存を確認する。クロスビルドの成功だけでは Windows 上の動作を保証しない。
 

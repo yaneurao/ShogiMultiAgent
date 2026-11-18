@@ -1,4 +1,4 @@
-#[path = "../../src/usi_agent.rs"]
+#[path = "usi_agent.rs"]
 mod usi_agent;
 #[tokio::main]
 async fn main() -> std::io::Result<()> {

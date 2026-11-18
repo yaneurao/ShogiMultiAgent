@@ -6,7 +6,7 @@
 
 「終了予約」は各エージェントへqを送り終局を待つ。参加中の接続設定では参加ボタンを無効にする。設定名を編集すると、実行中の接続の一覧・タブにも即時反映する。強制終了には切断負けの確認を要し、Windowsではtaskkill /Tでエンジンを含むプロセスツリーを終了する。参加中のウィンドウを閉じると終局待ちの確認を表示し、エンジンを終了してからアプリを閉じる。アプリが異常終了して標準入力が閉じた場合も、エージェントは終局後に終了する。棋譜保存はエージェントのCSA保存機能を利用する。
 
-`build-windows.sh` はRustエージェントとElectronアプリをWindows x64向けにビルドする。独立したエージェント用Cargo定義を用い、Unix専用サーバーをWindowsでビルドしない。Electronのasar内の実行ファイルをspawnできないためasarは無効にする。配布は生成したフォルダ全体。
+`scripts/build-windows.sh` はRustエージェントとElectronアプリをWindows x64向けにビルドする。独立したエージェント用Cargo定義を用い、Unix専用サーバーをWindowsでビルドしない。Electronのasar内の実行ファイルをspawnできないためasarは無効にする。配布は生成したフォルダ全体。
 
 `tests/usi_agent_app_e2e.py` はJSON Lines、tripを含むLOGIN、CSA棋譜、終局待ちを実CSA/USIの模擬相手で検証する。`tests/participant_app_e2e.cjs` は実Electron画面から2接続、trip暗号化、局面・評価値、一方の終了中に他方が継続することを検証する。
 
