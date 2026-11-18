@@ -49,7 +49,7 @@ async function loadHistory(){try{await fs.mkdir(historyDir(),{recursive:true});c
 
 
 const publicProfile=p=>({id:p.id,label:p.label,name:p.name,host:p.host,engine:p.engine,pool:p.pool,record_dir:p.record_dir,options:p.options,ponder:!!p.ponder,hasTrip:!!p.trip});
-const state=()=>({settingsPath:file(),defaultRecordDir:defaultRecordDir(),historyLoading,historyRecoveryPending,historyLoadErrors,startingProfiles:[...startingProfiles],profiles:profiles.map(publicProfile),sessions:[...sessions.values()].map(({child,game,pending,checkpoint,...s})=>({...s,isActive:!!child}))});
+const state=()=>({version:app.getVersion(),settingsPath:file(),defaultRecordDir:defaultRecordDir(),historyLoading,historyRecoveryPending,historyLoadErrors,startingProfiles:[...startingProfiles],profiles:profiles.map(publicProfile),sessions:[...sessions.values()].map(({child,game,pending,checkpoint,...s})=>({...s,isActive:!!child}))});
 let notifyTimer=null;function notify(){if(notifyTimer)return;notifyTimer=setTimeout(()=>{notifyTimer=null;if(windowRef&&!windowRef.isDestroyed())windowRef.webContents.send('changed',state());},100);}
 let profileWrites=Promise.resolve();function changeProfiles(fn){const next=profileWrites.then(fn);profileWrites=next.catch(()=>{});return next;}
 async function persist(){const temp=file()+'.tmp';await fs.writeFile(temp,JSON.stringify(profiles,null,2),{mode:0o600});await fs.rename(temp,file());}

@@ -44,6 +44,10 @@ PLAYWRIGHT_MODULE=/path/to/node_modules/playwright xvfb-run -a node tests/partic
 
 画面の変更では、接続ごとの情報の分離、横幅を変えた表示、ボタンの有効・無効、エラー表示位置を確認する。通信変更では、先後両方、先読み命中・外れ、終局・切断、終了予約と連続対局を確認する。模擬相手での成功だけで、すべての実エンジン・CSA サーバーとの互換性が保証されるわけではない。
 
+## バージョン番号
+
+アプリ画面のバージョンは `1.0.001` のように末尾を3桁で表示する。`package.json` と `package-lock.json` は npm の形式に従って `1.0.1` とし、画面表示時にゼロ埋めする。リリースごとにリポジトリ直下で `npm version patch --no-git-tag-version` を実行し、末尾を1ずつ増やす（例：`1.0.001` → `1.0.002`）。ビルドし直す前に両ファイルが更新されたことを確認する。
+
 ## Windows x64 のビルド
 
 Linux からのクロスビルドには、Rust の x86_64-pc-windows-gnu ターゲット、MinGW、Wine、Node.js 22 以上を用意する。Wine は Windows 実行ファイルへのアイコン設定に必要。

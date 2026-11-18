@@ -1,6 +1,6 @@
 {
   "name": "shogimultiagent",
-  "version": "0.1.0",
+  "version": "1.0.1",
   "description": "USIエンジン対局参加アプリ",
   "main": "app/main.js",
   "private": true,
