@@ -636,7 +636,7 @@ async fn play(
     let mut ponder_sfen = String::new();
     let result=async {
         let mut committed=false;let mut logged_in=false;let mut summary_complete=false;let mut summary_open=false;let mut game_started=false;let mut have_side=false;let mut have_total=false;let mut have_position=false;let mut termination_reason=String::new();let mut game_id=String::new();let mut black=String::new();let mut white=String::new();let mut record: Option<CsaRecord>=None;
-        let mut side='+';let mut total=300u64;let mut inc=0u64;let mut byo=0u64;let mut clocks=[0u64;2];let mut moves=Vec::<String>::new();let mut pos=rshogi_csa::initial_position();let mut initial_sfen=rshogi_core::position::SFEN_HIRATE.to_string();let mut position_lines=Vec::<String>::new();let mut opening_frames=Vec::<serde_json::Value>::new();let mut in_position=false;let mut last_analysis_event=None::<tokio::time::Instant>;let mut analysis=Analysis::default();
+        let mut side='+';let mut total=300u64;let mut inc=0u64;let mut byo=0u64;let mut clocks=[0u64;2];let mut moves=Vec::<String>::new();let mut pos=rshogi_csa::initial_position();let mut initial_sfen=rshogi_core::position::SFEN_HIRATE.to_string();let mut position_lines=Vec::<String>::new();let mut opening_frames=Vec::<serde_json::Value>::new();let mut in_position=false;let mut analysis=Analysis::default();
         loop {
             if !committed && drain.as_ref().is_some_and(|d| *d.borrow()) {let _ = write.write_all(b"LOGOUT\n").await; console_progress(status,"ログアウト処理を行いました。");if let Some(s)=status{s("drained");}return Ok(false);}
             tokio::select! { biased;
@@ -674,7 +674,7 @@ async fn play(
                     if let Some(dir)=record_dir {match CsaRecord::create(dir,&game_id,&black,&white,&position_lines) {Ok(r)=>record=Some(r),Err(e)=>eprintln!("棋譜を保存できません: {e}")}}
                     if show_board {if app_mode(){app_event(serde_json::json!({"event":"game_started","side":if side=='+' {"black"}else{"white"},"game_id":game_id,"board":format_board(&pos),"sfen":pos.to_sfen(),"ply":display_ply(&initial_sfen,moves.len()),"frames":opening_frames,"black":black,"white":white,"clocks":clocks,"increment":inc,"byoyomi":byo}));}else{println!("対局開始（{}）\n{}",if side=='+' {"先手"} else {"後手"},format_board(&pos));}}
                 }
-                if line.starts_with("START:") && (pos.side_to_move==rshogi_csa::Color::Black)==(side=='+') { go(engine,&initial_sfen,&moves,clocks,inc,byo,false).await?;thinking=true;last_analysis_event=None;analysis=Analysis::default();if app_mode(){app_event(serde_json::json!({"event":"search_state","mode":"thinking"}));} }
+                if line.starts_with("START:") && (pos.side_to_move==rshogi_csa::Color::Black)==(side=='+') { go(engine,&initial_sfen,&moves,clocks,inc,byo,false).await?;thinking=true;analysis=Analysis::default();if app_mode(){app_event(serde_json::json!({"event":"search_state","mode":"thinking"}));} }
                 if line.starts_with('+')||line.starts_with('-') {
                     if line.len()<7 {continue;}
                     if !game_started{return Err(io::Error::new(io::ErrorKind::InvalidInput,"対局開始前に指し手を受信しました。"));}
@@ -696,7 +696,7 @@ async fn play(
                     clocks[mover]=clocks[mover].saturating_add(inc).saturating_sub(elapsed);
                     if show_board {if app_mode(){let evaluation=line.split(",'*").nth(1).and_then(|s|s.split_whitespace().next()).and_then(|s|s.parse::<i32>().ok());app_event(serde_json::json!({"event":"move","move":moves.last().unwrap(),"ply":display_ply(&initial_sfen,moves.len()),"sfen":pos.to_sfen(),"board":format_board(&pos),"clocks":clocks,"elapsed":elapsed,"evaluation":evaluation,"pv":wire_pv}));}else{println!("指し手: {}\n{}",moves.last().unwrap(),format_board(&pos));}}
                     if token.starts_with(if side=='+' {'-'} else {'+'}) {
-                        last_analysis_event=None;analysis=Analysis::default();
+                        analysis=Analysis::default();
                         if let Some(expected)=pondering.take() {
                             if expected==*moves.last().unwrap() {
                                 engine.send("ponderhit").await?;thinking=true;analysis=std::mem::take(&mut ponder_analysis);if app_mode(){app_event(serde_json::json!({"event":"search_state","mode":"thinking"}));}
@@ -714,7 +714,7 @@ async fn play(
                                 go(engine,&initial_sfen,&ponder_moves,clocks,inc,byo,true).await?;
                                 let mut predicted=pos.clone();
                                 ponder_sfen=rshogi_csa::usi_move_to_csa(&expected,&predicted).ok().and_then(|m|predicted.apply_csa_move(&m).ok()).map(|_|predicted.to_sfen()).unwrap_or_default();
-                                ponder_analysis=Analysis::default();last_analysis_event=None;
+                                ponder_analysis=Analysis::default();
                                 pondering=Some(expected);if app_mode(){app_event(serde_json::json!({"event":"search_state","mode":"pondering"}));}
                             }
                         }
@@ -747,7 +747,7 @@ async fn play(
                 if ponder_stopping && line.starts_with("bestmove ") {
                     ponder_stopping=false;
                     go(engine,&initial_sfen,&moves,clocks,inc,byo,false).await?;
-                    thinking=true;last_analysis_event=None;analysis=Analysis::default();if app_mode(){app_event(serde_json::json!({"event":"search_state","mode":"thinking"}));}
+                    thinking=true;analysis=Analysis::default();if app_mode(){app_event(serde_json::json!({"event":"search_state","mode":"thinking"}));}
                     continue;
                 }
                 if pondering.is_some() && line.starts_with("bestmove ") {
@@ -756,16 +756,10 @@ async fn play(
                 }
                 if pondering.is_some() && line.starts_with("info ") {
                     ponder_analysis.update(&line);
-                    if app_mode() && (ponder_analysis.depth.is_some() || ponder_analysis.score.is_some() || !ponder_analysis.pv.is_empty()) && last_analysis_event.is_none_or(|last|last.elapsed()>=Duration::from_millis(500)) {
-                        app_event(serde_json::json!({"event":"analysis_update","mode":"pondering","depth":ponder_analysis.depth,"score":ponder_analysis.display_score,"pv":ponder_analysis.pv,"sfen":ponder_sfen}));
-                        last_analysis_event=Some(tokio::time::Instant::now());
-                    }
+                    if app_mode() { emit_live_analysis(&line, "pondering", &ponder_sfen, side); }
                 }
                 if thinking { analysis.update(&line);
-                    if app_mode() && line.starts_with("info ") && (analysis.depth.is_some() || analysis.score.is_some() || !analysis.pv.is_empty()) && last_analysis_event.is_none_or(|last|last.elapsed()>=Duration::from_millis(500)) {
-                        app_event(serde_json::json!({"event":"analysis_update","mode":"thinking","depth":analysis.depth,"sfen":pos.to_sfen(),"score":analysis.display_score,"evaluation":analysis.score.map(|v|if side=='+'{v}else{v.saturating_neg()}),"pv":analysis.pv}));
-                        last_analysis_event=Some(tokio::time::Instant::now());
-                    }
+                    if app_mode() { emit_live_analysis(&line, "thinking", &pos.to_sfen(), side); }
                     if let Some(best)=line.strip_prefix("bestmove ").and_then(|s|s.split_whitespace().next()) {
                     thinking=false;if app_mode(){app_event(serde_json::json!({"event":"search_state","mode":"waiting"}));}
                     let words=line.split_whitespace().collect::<Vec<_>>();
@@ -886,15 +880,31 @@ fn format_board(position: &rshogi_csa::Position) -> String {
     out
 }
 
+// Each PV line is a separate snapshot; do not combine bounds or values from
+// earlier lines, nor display informational lines without a principal variation.
+fn emit_live_analysis(line: &str, mode: &str, sfen: &str, side: char) {
+    if !line.starts_with("info ") || line.split_whitespace().nth(1) == Some("string") || !line.split_whitespace().any(|v| v == "pv") { return; }
+    let mut live = Analysis::default();
+    live.update_info(line, false);
+    if live.pv.is_empty() { return; }
+    let fields: Vec<_> = line.split_whitespace().collect();
+    let primary = !fields.windows(2).any(|v| v[0] == "multipv" && v[1] != "1");
+    app_event(serde_json::json!({"event":"analysis_update","primary":primary,"mode":mode,"depth":live.depth,"seldepth":live.seldepth,"nps":live.nps,"bound":live.bound,"sfen":sfen,"score":live.display_score,"evaluation":live.score.map(|v|if side=='+'{v}else{v.saturating_neg()}),"pv":live.pv}));
+}
+
 #[derive(Default)]
 struct Analysis {
     depth: Option<u32>,
+    seldepth: Option<u32>,
+    nps: Option<u64>,
+    bound: Option<&'static str>,
     score: Option<i32>,
     pv: Vec<String>,
     display_score: Option<String>,
 }
 impl Analysis {
-    fn update(&mut self, line: &str) {
+    fn update(&mut self, line: &str) { self.update_info(line, true); }
+    fn update_info(&mut self, line: &str, primary_only: bool) {
         if !line.starts_with("info ") {
             return;
         }
@@ -905,13 +915,20 @@ impl Analysis {
         // Bounds are valid search output too. Dropping an entire bound-only
         // info line loses both the score and PV when no exact line precedes
         // bestmove (e.g. with PvInterval suppressing intermediate output).
-        if fields.windows(2).any(|v| v[0] == "multipv" && v[1] != "1") {
+        if primary_only && fields.windows(2).any(|v| v[0] == "multipv" && v[1] != "1") {
             return;
         }
         if let Some(i) = fields.iter().position(|v| *v == "depth") {
             if let Some(depth) = fields.get(i + 1).and_then(|v| v.parse().ok()) { self.depth = Some(depth); }
         }
+        if let Some(i) = fields.iter().position(|v| *v == "seldepth") {
+            if let Some(value) = fields.get(i + 1).and_then(|v| v.parse().ok()) { self.seldepth = Some(value); }
+        }
+        if let Some(i) = fields.iter().position(|v| *v == "nps") {
+            if let Some(value) = fields.get(i + 1).and_then(|v| v.parse().ok()) { self.nps = Some(value); }
+        }
         if let Some(i) = fields.iter().position(|v| *v == "score") {
+            self.bound = match fields.get(i + 3).copied() { Some("lowerbound") => Some("++"), Some("upperbound") => Some("--"), _ => None };
             if let (Some(kind), Some(value)) = (fields.get(i + 1), fields.get(i + 2)) {
                 let parsed = value.parse::<i32>().ok().or_else(|| {
                     if *kind == "mate" {

@@ -78,4 +78,4 @@ header{height:50px;padding:0 20px}header .brand{width:32px;height:32px;font-size
 .form-grid label.ponder-check{display:flex;align-items:center;gap:8px;font-weight:normal}.ponder-check input{width:auto;margin:0;padding:0}
 
 /* 進捗ログと、タブごとの現在の探索情報。 */
-#detail-log .log{height:190px}.live-search{margin:10px 0;border:1px solid #cbdcd9;background:#f3f8f7;border-radius:6px;padding:8px;min-width:0}.live-search h3{margin:0 0 4px}.live-search h3 span{font-weight:normal;color:#126d64}.live-search #live-search-pv{max-height:5em;overflow:auto;overflow-wrap:anywhere;line-height:1.5}
+#detail-log .log{height:190px}.live-search{margin:10px 0;border:1px solid #cbdcd9;background:#f3f8f7;border-radius:6px;padding:8px;min-width:0}.live-search h3{margin:0 0 4px}.live-search h3 span{font-weight:normal;color:#126d64}.live-search-rows{height:8em;overflow:auto;line-height:1.6;white-space:nowrap}.live-search-row{white-space:nowrap;width:max-content;min-width:100%}
