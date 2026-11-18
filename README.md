@@ -2,6 +2,8 @@
 
 Windows x64で、USIエンジンをShogiZoneやfloodgateなどのCSA対局サーバーに参加させるアプリです。接続設定と参加状況をタブで切り替えます。複数の接続の状態・手数・思考中の自分の評価値を一覧、盤面と読み筋を接続別のタブで確認できます。
 
+![複数のエンジンの参加状況と対局盤面](docs/images/screen-shot20261118.png)
+
 **はじめての方は [初心者向けチュートリアル](docs/tutorial.md) をご覧ください。**
 
 1. フォルダ内の `ShogiMultiAgent.exe` を起動します。
