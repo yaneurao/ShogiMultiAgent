@@ -20,7 +20,7 @@ for line in sys.stdin:
  await new Promise(r=>server.listen(0,'127.0.0.1',r));
  try{
   app=await electron.launch({executablePath:path.join(root,'node_modules/electron/dist/electron'),args:['--no-sandbox','--password-store=basic',root],env:{...process.env,HOME:tmp,XDG_CONFIG_HOME:path.join(tmp,'config')}});
-  const page=await app.firstWindow();
+  const page=await app.firstWindow();assert.match(await page.locator('#live-search h3').textContent(),/思考ログ/);await page.evaluate(()=>renderLiveSearch({search:{mode:'history',rows:[]}}));assert.equal(await page.locator('#live-search-rows').textContent(),'');
   await page.evaluate(async({engine,port})=>{await window.arena.save({label:'通常思考',name:'Test',host:`127.0.0.1:${port}`,pool:'test',engine,options:'',ponder:false});const state=await window.arena.state();await window.arena.start(state.profiles[0].id);},{engine,port:server.address().port});
   await page.locator('#view-tab-participation').click();
   await page.waitForFunction(async()=>{const s=(await window.arena.state()).sessions[0];return s?.search?.rows?.length===2&&s.search.mode==='waiting';});

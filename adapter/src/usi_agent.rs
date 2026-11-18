@@ -148,6 +148,8 @@ fn startup_diagnostics(lines: &std::collections::VecDeque<String>) -> String {
 }
 
 pub type StatusCallback = std::sync::Arc<dyn Fn(&str) + Send + Sync>;
+static MATCH_GATE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static MATCH_REPLIES: std::sync::OnceLock<tokio::sync::Mutex<mpsc::UnboundedReceiver<()>>> = std::sync::OnceLock::new();
 static APP_MODE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 fn app_mode() -> bool { APP_MODE.load(std::sync::atomic::Ordering::Relaxed) }
 fn app_event(value: serde_json::Value) { if app_mode() { println!("{value}"); } }
@@ -163,6 +165,7 @@ pub async fn run_cli(args: impl Iterator<Item = String>) -> io::Result<()> {
         std::io::stdin().lock().read_line(&mut line)?;
         if line.len() > 65536 { return Err(fail("参加設定が大きすぎます")); }
         let config: serde_json::Value = serde_json::from_str(&line).map_err(|_| fail("参加設定の形式が正しくありません"))?;
+        MATCH_GATE.store(config["match_gate"].as_bool().unwrap_or(false), std::sync::atomic::Ordering::Relaxed);
         let value = |key: &str| config[key].as_str().unwrap_or("").to_string();
         let trip = value("trip");
         if trip.chars().any(|c| c.is_whitespace() || c.is_control() || c == ',') { return Err(fail("tripに使用できない文字があります")); }
@@ -179,6 +182,8 @@ pub async fn run_cli(args: impl Iterator<Item = String>) -> io::Result<()> {
             for option in options { arguments.extend(["--option".into(),option.as_str().ok_or_else(||fail("エンジンオプションが不正です"))?.into()]); }
         }
     }
+    let (match_tx, match_rx) = mpsc::unbounded_channel();
+    let _ = MATCH_REPLIES.set(tokio::sync::Mutex::new(match_rx));
     let (quit, drain) = tokio::sync::watch::channel(false);
     let input_quit = quit.clone();
     std::thread::spawn(move || {
@@ -194,6 +199,7 @@ pub async fn run_cli(args: impl Iterator<Item = String>) -> io::Result<()> {
                     let _ = input_quit.send(false);
                     app_event(serde_json::json!({"event":"resumed","message":"終了予約を取り消しました"}));
                 }
+                Ok(line) if app_mode() && line.trim() == "allow" => { let _ = match_tx.send(()); }
                 Ok(_) => {}
                 Err(_) => break,
             }
@@ -667,7 +673,11 @@ async fn play(
                     continue;
                 }
                 if in_position {position_lines.push(line);continue;}
-                if line=="END Game_Summary" {if inc>0&&byo>0{return Err(io::Error::new(io::ErrorKind::InvalidInput,"秒読みと時間加算を併用する対局条件には対応していません。"));}if !logged_in||!summary_open||!committed||summary_complete||!have_side||!have_total||!have_position{return Err(io::Error::new(io::ErrorKind::InvalidInput,"対局情報が不足または不正なため、開始できません。"));}clocks=[total;2];write.write_all(b"AGREE\n").await?;summary_open=false;summary_complete=true;prestart_timeout.as_mut().reset(tokio::time::Instant::now()+Duration::from_secs(30));console_progress(status,"対局条件を受け付けました。開始を待っています...");}
+                if line=="END Game_Summary" {if inc>0&&byo>0{return Err(io::Error::new(io::ErrorKind::InvalidInput,"秒読みと時間加算を併用する対局条件には対応していません。"));}if !logged_in||!summary_open||!committed||summary_complete||!have_side||!have_total||!have_position{return Err(io::Error::new(io::ErrorKind::InvalidInput,"対局情報が不足または不正なため、開始できません。"));}clocks=[total;2];if app_mode() && MATCH_GATE.load(std::sync::atomic::Ordering::Relaxed) {
+                    app_event(serde_json::json!({"event":"match_found","game_id":game_id,"black":black,"white":white,"side":if side=='+' {"black"}else{"white"}}));
+                    let replies=MATCH_REPLIES.get().ok_or_else(||fail("マッチングの確認に失敗しました"))?;
+                    match tokio::time::timeout(Duration::from_secs(10), replies.lock().await.recv()).await { Ok(Some(()))=>{}, _=>return Err(fail("マッチングの確認がタイムアウトしました")) }
+                }write.write_all(b"AGREE\n").await?;summary_open=false;summary_complete=true;prestart_timeout.as_mut().reset(tokio::time::Instant::now()+Duration::from_secs(30));console_progress(status,"対局条件を受け付けました。開始を待っています...");}
                 if line.starts_with("START:") {
                     if !summary_complete||game_started{return Err(io::Error::new(io::ErrorKind::InvalidInput,"対局開始の受信順序が不正です。"));}game_started=true;
                     if game_id.is_empty() {game_id=line.trim_start_matches("START:").to_owned();}

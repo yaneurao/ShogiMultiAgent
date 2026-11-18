@@ -7,8 +7,9 @@ app.setName('ShogiMultiAgent');
 app.setPath('userData',path.join(app.getPath('appData'),'shogizone-participant'));
 const singleInstance=app.requestSingleInstanceLock();if(!singleInstance)app.quit();
 app.on('second-instance',()=>{if(windowRef&&!windowRef.isDestroyed()){if(windowRef.isMinimized())windowRef.restore();windowRef.show();windowRef.focus();}});
-let windowRef,profiles=[],closing=false;const sessions=new Map(),startingProfiles=new Set();
+let windowRef,profiles=[],closing=false,appSettings={disconnectSelfPlay:false};const sessions=new Map(),startingProfiles=new Set();
 const file=()=>path.join(app.getPath('userData'),'connections.json');
+const settingsFile=()=>path.join(app.getPath('userData'),'settings.json');
 const historyDir=()=>path.join(app.getPath('userData'),'game-history');
 const pendingDir=()=>path.join(historyDir(),'pending');
 const defaultRecordDir=()=>path.join(app.getPath('documents'),'ShogiMultiAgent','kif');
@@ -49,7 +50,7 @@ async function loadHistory(){try{await fs.mkdir(historyDir(),{recursive:true});c
 
 
 const publicProfile=p=>({id:p.id,label:p.label,name:p.name,host:p.host,engine:p.engine,pool:p.pool,record_dir:p.record_dir,options:p.options,ponder:!!p.ponder,hasTrip:!!p.trip});
-const state=()=>({version:app.getVersion(),settingsPath:file(),defaultRecordDir:defaultRecordDir(),historyLoading,historyRecoveryPending,historyLoadErrors,startingProfiles:[...startingProfiles],profiles:profiles.map(publicProfile),sessions:[...sessions.values()].map(({child,game,pending,checkpoint,searchHistory,...s})=>({...s,isActive:!!child}))});
+const state=()=>({version:app.getVersion(),appSettings:{...appSettings},settingsPath:file(),defaultRecordDir:defaultRecordDir(),historyLoading,historyRecoveryPending,historyLoadErrors,startingProfiles:[...startingProfiles],profiles:profiles.map(publicProfile),sessions:[...sessions.values()].map(({child,game,pending,checkpoint,searchHistory,...s})=>({...s,isActive:!!child}))});
 let notifyTimer=null;function notify(){if(notifyTimer)return;notifyTimer=setTimeout(()=>{notifyTimer=null;if(windowRef&&!windowRef.isDestroyed())windowRef.webContents.send('changed',state());},100);}
 let profileWrites=Promise.resolve();function changeProfiles(fn){const next=profileWrites.then(fn);profileWrites=next.catch(()=>{});return next;}
 async function persist(){const temp=file()+'.tmp';await fs.writeFile(temp,JSON.stringify(profiles,null,2),{mode:0o600});await fs.rename(temp,file());}
@@ -64,8 +65,31 @@ function validate(input){
  const trip=String(input.trip||'');if(/[\s,\x00-\x1f\x7f]/.test(trip))throw Error('tripに空白やカンマは使えません。');
  return {out,trip};
 }
+function forceSession(s,reason='強制終了を実行しました。'){
+ if(!s?.child||s.forceRequested)return;
+ s.forceRequested=true;s.log.push(reason);
+ if(process.platform==='win32'){
+  const killer=spawn('taskkill',['/PID',String(s.child.pid),'/T','/F'],{windowsHide:true,stdio:'ignore'});
+  killer.on('error',e=>{s.error='強制終了に失敗しました: '+e.message;notify();});
+  killer.on('close',code=>{if(code!==0&&s.child){s.error=`強制終了に失敗しました（taskkill: ${code}）`;s.log.push(s.error);notify();}});
+ }else if(!s.child.kill()){s.error='強制終了に失敗しました。';s.log.push(s.error);}
+ s.stopRequested=true;s.status='stopping';notify();
+}
+function confirmMatch(s,e){
+ const own=e.side==='black'?e.black:e.white,opponent=e.side==='black'?e.white:e.black;
+ s.matchCandidate={game_id:e.game_id,black:e.black,white:e.white};
+ const peer=appSettings.disconnectSelfPlay&&own===s.name&&opponent&&[...sessions.values()].find(other=>{
+  if(other===s||other.host.toLowerCase()!==s.host.toLowerCase()||other.name!==opponent)return false;
+  const match=other.matchCandidate;
+  if(match)return match.game_id===e.game_id&&match.black===e.black&&match.white===e.white;
+  return !!other.child&&!other.gameInProgress;
+ });
+ if(peer){forceSession(s,`自分が参加させたプレイヤー ${opponent} との対局を検出したため強制切断しました。`);}
+ else if(s.child)s.child.stdin.write('allow\n');
+}
 function eventFor(s,e){
- if(e.event==='state') {if(e.state==='reconnecting'){s.search={mode:'waiting'};saveInterrupted(s);if(e.message){s.error=e.message;s.log.push('再接続中: '+e.message);}}if(!s.stopRequested)s.status=e.state;if(e.state==='waiting'){s.search={mode:'waiting'};s.error=null;s.ply=null;s.score=null;s.pv=[];s.opponent=null;}}
+ if(e.event==='state') {if(e.state==='reconnecting'){s.matchCandidate=null;s.search={mode:'waiting'};saveInterrupted(s);if(e.message){s.error=e.message;s.log.push('再接続中: '+e.message);}}if(!s.stopRequested)s.status=e.state;if(e.state==='waiting'){s.matchCandidate=null;s.search={mode:'waiting'};s.error=null;s.ply=null;s.score=null;s.pv=[];s.opponent=null;}}
+ if(e.event==='match_found')confirmMatch(s,e);
  if(e.event==='record')s.pendingRecordPath=e.path;
  if(e.event==='game_started'){s.searchHistory=new Map();s.search={mode:'waiting'};s.gameInProgress=true;s.game={startedAt:Date.now(),label:s.label,side:e.side,recordPath:s.pendingRecordPath||null,frames:(e.frames?.length?e.frames:[{sfen:e.sfen,ply:e.ply}]).map(f=>({...f})),black:e.black,white:e.white,byoyomi:e.byoyomi,increment:e.increment,generation:(s.gameGeneration=(s.gameGeneration||0)+1),revision:s.gameRevision||0};Object.assign(s.game.frames.at(-1),{clocks:e.clocks,received:Date.now()});s.pending=null;s.pendingRecordPath=null;for(const other of sessions.values())if(other!==s&&other.host===s.host&&other.game_id===e.game_id&&other.game?.black===e.black&&other.game?.white===e.white&&other.game?.side!==e.side){other.game.selfPlay=true;s.game.selfPlay=true;}if(!s.stopRequested)s.status='playing';s.side=e.side;s.opponent=(e.side==='black'?e.white:e.black)||null;s.game_id=e.game_id;s.ply=e.ply;s.board=e.board;s.score=null;s.pv=[];}
  if(e.event==='move'){if(s.search?.mode==='pondering'&&s.search.sfen&&s.search.sfen!==e.sfen)s.search={mode:s.search.mode,rows:[]};if(s.game){const a=s.pending?.move===e.move?s.pending:null;s.game.frames.push({sfen:e.sfen,ply:e.ply,move:e.move,clocks:e.clocks,elapsed:e.elapsed,evaluation:e.evaluation??a?.evaluation,pv:e.pv?.length?e.pv:a?.pv,received:Date.now()});s.pending=null;}s.ply=e.ply;s.board=e.board;s.move=e.move;}
@@ -97,17 +121,19 @@ async function start(id){
  const parse=readline.createInterface({input:child.stdout,crlfDelay:Infinity});parse.on('line',line=>{try{eventFor(session,JSON.parse(line));}catch{session.log.push(line.slice(0,4096));notify();}});
  const errors=readline.createInterface({input:child.stderr,crlfDelay:Infinity});errors.on('line',line=>{session.log.push(line.slice(0,4096));if(session.log.length>500)session.log.shift();notify();});
  child.on('close',(code,signal)=>{saveInterrupted(session);session.child=null;if(session.status!=='failed')session.status=(code===0||session.forceRequested)?'stopped':'failed';if(code!==0){if(session.forceRequested)session.log.push(`強制終了しました（終了コード: ${code??signal}）`);else session.error||=`終了コード: ${code??signal}`;}else if(session.forceRequested)session.log.push('強制終了しました。');notify();if(!closing&&!session.forceRequested&&(session.resumeRequested||(!session.stopRequested&&code===0&&Date.now()-(session.lastResumeAt||0)<10000))){start(session.profileId).then(()=>{sessions.delete(session.id);notify();}).catch(e=>{session.error='再参加に失敗しました: '+e.message;notify();});}if(closing&&!startingProfiles.size&&![...sessions.values()].some(s=>s.child))finishQuit();});
- child.stdin.on('error',()=>{});child.stdin.write(JSON.stringify({engine:profile.engine,host:profile.host,name:profile.name,pool:profile.pool,trip,record_dir:recordDir,options:profile.options,ponder:!!profile.ponder})+'\n');return session.id;
+ child.stdin.on('error',()=>{});child.stdin.write(JSON.stringify({engine:profile.engine,host:profile.host,name:profile.name,pool:profile.pool,trip,record_dir:recordDir,options:profile.options,ponder:!!profile.ponder,match_gate:true})+'\n');return session.id;
  } finally {startingProfiles.delete(id);notify();if(closing&&!startingProfiles.size&&![...sessions.values()].some(s=>s.child))finishQuit();}
 }
 app.whenReady().then(async()=>{
  if(!singleInstance)return;
+ try{const value=JSON.parse(await fs.readFile(settingsFile(),'utf8'));appSettings.disconnectSelfPlay=value.disconnectSelfPlay===true;}catch(e){if(e.code!=='ENOENT'){dialog.showErrorBox('アプリ設定を読み込めません',e.message);app.quit();return;}}
  try{const value=JSON.parse(await fs.readFile(file(),'utf8'));if(Array.isArray(value))profiles=value;}catch(e){if(e.code!=='ENOENT'){dialog.showErrorBox('設定を読み込めません',e.message);app.quit();return;}}
 
  windowRef=new BrowserWindow({width:1350,height:860,minWidth:720,minHeight:560,title:'ShogiMultiAgent',icon:path.join(__dirname,'assets','icon.png'),webPreferences:{preload:path.join(__dirname,'preload.js'),contextIsolation:true,nodeIntegration:false,sandbox:true}});
  windowRef.setMenuBarVisibility(false);windowRef.loadFile(path.join(__dirname,'index.html'));
  windowRef.on('close',e=>{if(!closing&&(startingProfiles.size||[...sessions.values()].some(s=>s.child))){e.preventDefault();windowRef.webContents.send('close-requested');}});
  ipcMain.handle('state',()=>state());
+ ipcMain.handle('save-app-settings',(_e,input)=>changeProfiles(async()=>{if(typeof input?.disconnectSelfPlay!=='boolean')throw Error('アプリ設定が不正です。');await fs.mkdir(app.getPath('userData'),{recursive:true});const temp=settingsFile()+'.tmp';const next={disconnectSelfPlay:input.disconnectSelfPlay};await fs.writeFile(temp,JSON.stringify(next,null,2),{mode:0o600});await fs.rename(temp,settingsFile());appSettings=next;notify();return next;}));
  ipcMain.handle('records',()=>recordsList());
  ipcMain.handle('delete-records',(_e,ids,options={removeHistory:true,removeCsa:true})=>{
   if(!Array.isArray(ids)||ids.length>10000||ids.some(id=>typeof id!=='string'||!/^[a-f0-9]{64}$/.test(id)))throw Error('選択された棋譜が不正です。');
@@ -163,7 +189,7 @@ app.whenReady().then(async()=>{
  ipcMain.handle('start',(_e,id)=>start(id));
  ipcMain.handle('resume',(_e,id)=>{const s=sessions.get(id);if(!s?.child||!s.stopRequested||s.forceRequested)throw Error('終了予約を取り消せません。');if(closing)throw Error('アプリを終了しています。');s.resumeRequested=true;s.lastResumeAt=Date.now();s.child.stdin.write('c\n');notify();});
  ipcMain.handle('stop',(_e,id)=>{const s=sessions.get(id);if(!s?.child)return;s.resumeRequested=false;s.lastResumeAt=0;s.child.stdin.write('q\n');s.stopRequested=true;s.status='stopping';notify();});
- ipcMain.handle('force',(_e,id)=>{const s=sessions.get(id);if(!s?.child)return;s.forceRequested=true;s.log.push('強制終了を実行しました。');if(process.platform==='win32'){const killer=spawn('taskkill',['/PID',String(s.child.pid),'/T','/F'],{windowsHide:true,stdio:'ignore'});killer.on('error',e=>{s.error='強制終了に失敗しました: '+e.message;notify();});}else{s.child.kill();}s.stopRequested=true;s.status='stopping';notify();});
+ ipcMain.handle('force',(_e,id)=>{forceSession(sessions.get(id));});
  ipcMain.handle('remove-session',(_e,id)=>{const s=sessions.get(id);if(s&&!s.child){sessions.delete(id);notify();}});
  historyReady=loadHistory().then(recovered=>{for(const session of recovered||[])saveHistory(session,'#UNKNOWN','#ABNORMAL');if(historyRecoveryPending){const recoveryWrites=historyWrites;recoveryWrites.finally(()=>{historyRecoveryPending=false;notify();});}});
  ipcMain.handle('close-gracefully',()=>{closing=true;for(const s of sessions.values())if(s.child){s.child.stdin.write('q\n');s.stopRequested=true;s.status='stopping';}notify();if(!startingProfiles.size&&![...sessions.values()].some(s=>s.child))finishQuit();});
