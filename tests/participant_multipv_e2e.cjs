@@ -30,7 +30,7 @@ for line in sys.stdin:
   await page.waitForFunction(()=>document.querySelectorAll('.live-search-row').length===6);
   const cells=await page.locator('.live-search-row').evaluateAll(rows=>rows.map(row=>[...row.children].map(cell=>cell.textContent)));
   assert.deepEqual(cells.map(row=>row[1]),['37','37','5','23','92','92']);
-  assert.deepEqual(cells.map(row=>row[0]),Array(6).fill('0:00'));
+  assert.deepEqual(cells.map(row=>row[0]),Array(6).fill('00:00'));
   assert.deepEqual(cells.map(row=>row[2]),['14','14','26','34','65','65']);
   const alignment=await page.evaluate(()=>{const headers=[...document.querySelector('.live-search-columns').children],row=[...document.querySelector('.live-search-row').children];return headers.slice(0,3).map((h,i)=>({header:h.getBoundingClientRect().right,cell:row[i].getBoundingClientRect().right,align:getComputedStyle(h).textAlign,valueAlign:getComputedStyle(row[i]).textAlign,padding:parseFloat(getComputedStyle(row[i]).paddingRight)}));});assert(alignment.every(a=>a.align==='center'&&a.valueAlign==='right'&&a.padding>0&&Math.abs(a.header-a.cell)<1),JSON.stringify(alignment));
   const state=await page.evaluate(()=>window.arena.state());assert.equal(state.sessions[0].score,'65');

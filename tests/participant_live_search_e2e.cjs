@@ -20,7 +20,7 @@ for line in sys.stdin:
  await new Promise(r=>server.listen(0,'127.0.0.1',r));
  try{
   app=await electron.launch({executablePath:path.join(root,'node_modules/electron/dist/electron'),args:['--no-sandbox','--password-store=basic',root],env:{...process.env,HOME:tmp,XDG_CONFIG_HOME:path.join(tmp,'config')}});
-  const page=await app.firstWindow();assert.match(await page.locator('#live-search h3').textContent(),/思考ログ/);await page.evaluate(()=>renderLiveSearch({search:{mode:'history',rows:[]}}));assert.equal(await page.locator('#live-search-rows').textContent(),'');
+  const page=await app.firstWindow();assert.deepEqual(await page.evaluate(()=>[null,0,1000,59999,60000,3599999,3600000,7200000,36000000].map(searchTime)),['—','00:00','00:01','00:59','01:00','59:59','1:00:00','2:00:00','10:00:00']);assert.match(await page.locator('#live-search h3').textContent(),/思考ログ/);await page.evaluate(()=>renderLiveSearch({search:{mode:'history',rows:[]}}));assert.equal(await page.locator('#live-search-rows').textContent(),'');
   await page.evaluate(async({engine,port})=>{await window.arena.save({label:'通常思考',name:'Test',host:`127.0.0.1:${port}`,pool:'test',engine,options:'',ponder:false});const state=await window.arena.state();await window.arena.start(state.profiles[0].id);},{engine,port:server.address().port});
   await page.locator('#view-tab-participation').click();
   await page.waitForFunction(async()=>{const s=(await window.arena.state()).sessions[0];return s?.search?.rows?.length===2&&s.search.mode==='waiting';});
@@ -28,8 +28,8 @@ for line in sys.stdin:
   assert.equal(await page.locator('.sessions-table th').nth(7).textContent(),'評価値');const web=page.getByRole('button',{name:'ブラウザで対局を開く'});assert(await web.isDisabled());assert.equal(await web.textContent(),'e');assert(await page.evaluate(async()=>{try{await arena.openGameUrl((await arena.state()).sessions[0].id);return false;}catch{return true;}}));
   assert.equal(await page.locator('#live-search-mode').textContent(),'待機中');
   const cells=await page.locator('.live-search-row').evaluateAll(rows=>rows.map(row=>[...row.children].map(cell=>cell.textContent)));
-  assert.deepEqual(cells[0].slice(0,4),['0:12','33/56','35','++']);
-  assert.deepEqual(cells[1].slice(0,4),['0:02','32/55','42','--']);
+  assert.deepEqual(cells[0].slice(0,4),['00:12','33/56','35','++']);
+  assert.deepEqual(cells[1].slice(0,4),['00:02','32/55','42','--']);
   assert.match(cells[0][4],/２六歩/);assert(!cells[1][4].includes('２五歩'));
   assert.equal(await page.locator('#live-search-nodes').textContent(),'探索局面数: 11,111');assert.equal(await page.locator('#live-search-nps').textContent(),'nps: 345,678');
   assert(!((await page.locator('#live-search').textContent()).includes('Bound')));
