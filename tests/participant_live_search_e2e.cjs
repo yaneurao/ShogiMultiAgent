@@ -25,6 +25,7 @@ for line in sys.stdin:
   await page.locator('#view-tab-participation').click();
   await page.waitForFunction(async()=>{const s=(await window.arena.state()).sessions[0];return s?.search?.rows?.length===2&&s.search.mode==='waiting';});
   await page.waitForFunction(()=>document.querySelectorAll('.live-search-row').length===2);
+  assert.equal(await page.locator('.sessions-table th').nth(7).textContent(),'評価値');const web=page.getByRole('button',{name:'ブラウザで対局を開く'});assert(await web.isDisabled());assert.equal(await web.textContent(),'e');assert(await page.evaluate(async()=>{try{await arena.openGameUrl((await arena.state()).sessions[0].id);return false;}catch{return true;}}));
   assert.equal(await page.locator('#live-search-mode').textContent(),'待機中');
   const cells=await page.locator('.live-search-row').evaluateAll(rows=>rows.map(row=>[...row.children].map(cell=>cell.textContent)));
   assert.deepEqual(cells[0].slice(0,4),['0:12','33/56','35','++']);

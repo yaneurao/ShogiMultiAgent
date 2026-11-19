@@ -1,6 +1,7 @@
 'use strict';
 const {app,BrowserWindow,ipcMain,dialog,safeStorage,shell,clipboard} = require('electron');
 const {spawn} = require('node:child_process');
+const {gameUrl}=require('./game-url');
 const fs=require('node:fs/promises'),path=require('node:path'),crypto=require('node:crypto'),readline=require('node:readline');
 app.setName('ShogiMultiAgent');
 // Preserve settings created by the earlier ShogiZone participant app.
@@ -50,7 +51,7 @@ async function loadHistory(){try{await fs.mkdir(historyDir(),{recursive:true});c
 
 
 const publicProfile=p=>({id:p.id,label:p.label,name:p.name,host:p.host,engine:p.engine,pool:p.pool,record_dir:p.record_dir,options:p.options,ponder:!!p.ponder,hasTrip:!!p.trip});
-const state=()=>({version:app.getVersion(),appSettings:{...appSettings},settingsPath:file(),defaultRecordDir:defaultRecordDir(),historyLoading,historyRecoveryPending,historyLoadErrors,startingProfiles:[...startingProfiles],profiles:profiles.map(publicProfile),sessions:[...sessions.values()].map(({child,game,pending,checkpoint,searchHistory,...s})=>({...s,isActive:!!child}))});
+const state=()=>({version:app.getVersion(),appSettings:{...appSettings},settingsPath:file(),defaultRecordDir:defaultRecordDir(),historyLoading,historyRecoveryPending,historyLoadErrors,startingProfiles:[...startingProfiles],profiles:profiles.map(publicProfile),sessions:[...sessions.values()].map(({child,game,pending,checkpoint,searchHistory,...s})=>({...s,isActive:!!child,gameUrlAvailable:!!gameUrl(s.host,s.game_id)}))});
 let notifyTimer=null;function notify(){if(notifyTimer)return;notifyTimer=setTimeout(()=>{notifyTimer=null;if(windowRef&&!windowRef.isDestroyed())windowRef.webContents.send('changed',state());},100);}
 let profileWrites=Promise.resolve();function changeProfiles(fn){const next=profileWrites.then(fn);profileWrites=next.catch(()=>{});return next;}
 async function persist(){const temp=file()+'.tmp';await fs.writeFile(temp,JSON.stringify(profiles,null,2),{mode:0o600});await fs.rename(temp,file());}
@@ -177,6 +178,7 @@ app.whenReady().then(async()=>{
  ipcMain.handle('reveal-record',async(_e,id)=>{const p=records.get(id)?.recordPath;if(!p)throw Error('CSAファイルがありません。');try{await fs.access(p);}catch{throw Error('CSAファイルが見つかりません。移動または削除されている可能性があります。');}shell.showItemInFolder(p);});
  ipcMain.handle('copy-record',async(_e,id)=>{const p=records.get(id)?.recordPath;if(!p)throw Error('CSAファイルがありません。');try{clipboard.writeText(await fs.readFile(p,'utf8'));}catch(e){throw Error('CSAファイルをコピーできません: '+e.message);}});
  ipcMain.handle('open-record',async(_e,id)=>{const p=records.get(id)?.recordPath;if(!p)throw Error('CSAファイルがありません。');const error=await shell.openPath(p);if(error)throw Error('CSAファイルを開けません: '+error);});
+ ipcMain.handle('open-game-url',async(_e,id)=>{const s=sessions.get(id),url=s&&gameUrl(s.host,s.game_id);if(!url)throw Error('この対局の観戦ページは利用できません。');await shell.openExternal(url);});
  ipcMain.handle('game',(_e,id)=>sessions.get(id)?.game||null);
  ipcMain.handle('search-history',(_e,id,sfen,generation)=>{const s=sessions.get(id);return s?.game?.generation===generation?s.searchHistory?.get(sfen)||null:null;});
  ipcMain.handle('pick-engine',async()=>{const r=await dialog.showOpenDialog(windowRef,{title:'USIエンジンを選択',properties:['openFile'],filters:process.platform==='win32'?[{name:'実行ファイル',extensions:['exe']},{name:'すべて',extensions:['*']}]:[{name:'すべて',extensions:['*']}]});return r.canceled?null:r.filePaths[0];});
