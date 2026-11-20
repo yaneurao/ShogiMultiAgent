@@ -672,7 +672,7 @@ fn position_initial_sfen(lines: &[String], initial: &rshogi_csa::Position) -> io
 fn display_ply(initial_sfen: &str, moves: usize) -> u64 {
     initial_sfen.split_whitespace().last().and_then(|v| v.parse::<u64>().ok()).unwrap_or(1).saturating_sub(1).saturating_add(moves as u64)
 }
-fn opening_clocks(lines: &[String], total: u64) -> io::Result<Vec<([u64; 2], Option<u64>)>> {
+fn opening_clocks(lines: &[String], clocks: [u64; 2]) -> io::Result<Vec<([u64; 2], Option<u64>)>> {
     let mut moves: Vec<Option<u64>> = Vec::new();
     for line in lines {
         for part in line.split(',') {
@@ -686,13 +686,14 @@ fn opening_clocks(lines: &[String], total: u64) -> io::Result<Vec<([u64; 2], Opt
     }
     // Position contains the prescribed opening, which precedes START and has
     // not used either player's clock. Its T fields describe that history only.
-    let clocks = [total; 2];
     let mut frames = vec![(clocks, None)];
     for elapsed in moves {
         frames.push((clocks, elapsed));
     }
     Ok(frames)
 }
+#[derive(Clone, Copy, Default)]
+struct RawTime { total: Option<u64>, increment: Option<u64>, byoyomi: Option<u64> }
 #[derive(Debug)]
 enum PlayOutcome { Completed, Drained, Aborted }
 
@@ -742,8 +743,8 @@ async fn play(
     let mut ponder_analysis = Analysis::default();
     let mut ponder_sfen = String::new();
     let result=async {
-        let mut committed=false;let mut logged_in=false;let mut summary_complete=false;let mut summary_open=false;let mut game_started=false;let mut have_side=false;let mut have_total=false;let mut have_position=false;let mut termination_reason=String::new();let mut game_id=String::new();let mut black=String::new();let mut white=String::new();let mut record: Option<CsaRecord>=None;
-        let mut side='+';let mut total=300u64;let mut inc=0u64;let mut byo=0u64;let mut clocks=[0u64;2];let mut moves=Vec::<String>::new();let mut pos=rshogi_csa::initial_position();let mut initial_sfen=rshogi_core::position::SFEN_HIRATE.to_string();let mut position_lines=Vec::<String>::new();let mut opening_frames=Vec::<serde_json::Value>::new();let mut in_position=false;let mut analysis=Analysis::default();
+        let mut committed=false;let mut logged_in=false;let mut summary_complete=false;let mut summary_open=false;let mut game_started=false;let mut have_side=false;let mut have_position=false;let mut termination_reason=String::new();let mut game_id=String::new();let mut black=String::new();let mut white=String::new();let mut record: Option<CsaRecord>=None;
+        let mut side='+';let mut common_time=RawTime::default();let mut side_time=[RawTime::default();2];let mut time_target=None;let mut inc=[0u64;2];let mut byo=0u64;let mut clocks=[0u64;2];let mut moves=Vec::<String>::new();let mut pos=rshogi_csa::initial_position();let mut initial_sfen=rshogi_core::position::SFEN_HIRATE.to_string();let mut position_lines=Vec::<String>::new();let mut opening_frames=Vec::<serde_json::Value>::new();let mut in_position=false;let mut analysis=Analysis::default();
         loop {
             if !committed && drain.as_ref().is_some_and(|d| *d.borrow()) {let _ = write.write_all(b"LOGOUT\n").await; console_progress(status,"ログアウト処理を行いました。");if let Some(s)=status{s("drained");}return Ok(PlayOutcome::Drained);}
             tokio::select! { biased;
@@ -762,11 +763,14 @@ async fn play(
                 if let Some(v)=line.strip_prefix("Your_Turn:"){side=match v.trim(){"+"=>'+',"-"=>'-',_=>return Err(io::Error::new(io::ErrorKind::InvalidInput,"対局情報の手番が不正です。"))};have_side=true;}
                 if let Some(v)=line.strip_prefix("Time_Unit:") {if v.trim()!="1sec" {return Err(io::Error::new(io::ErrorKind::InvalidInput,format!("未対応のCSA時間単位です: {}。1sec の対局条件を使用してください。",v.trim())));}}
                 if let Some(v)=line.strip_prefix("Delay:") {if v.trim()!="0" {return Err(io::Error::new(io::ErrorKind::InvalidInput,format!("未対応のCSA時間遅延です: {}。Delay:0 の対局条件を使用してください。",v.trim())));}}
-                if let Some(v)=line.strip_prefix("Total_Time:"){total=v.parse().map_err(|_|fail("invalid total time"))?;have_total=true;}
-                if let Some(v)=line.strip_prefix("Increment:"){inc=v.parse().map_err(|_|fail("invalid increment"))?;}
-                if let Some(v)=line.strip_prefix("Byoyomi:"){byo=v.parse().map_err(|_|fail("invalid byoyomi"))?;}
+                match line.as_str() {"BEGIN Time+"=>time_target=Some(0),"BEGIN Time-"=>time_target=Some(1),"BEGIN Time"|"END Time"|"END Time+"|"END Time-"=>time_target=None,_=>{}}
+                let time=if let Some(i)=time_target {&mut side_time[i]} else {&mut common_time};
+                if let Some(v)=line.strip_prefix("Total_Time:"){time.total=Some(v.parse().map_err(|_|fail("invalid total time"))?);}
+                if let Some(v)=line.strip_prefix("Increment:"){time.increment=Some(v.parse().map_err(|_|fail("invalid increment"))?);}
+                if let Some(v)=line.strip_prefix("Byoyomi:"){time.byoyomi=Some(v.parse().map_err(|_|fail("invalid byoyomi"))?);}
                 if line=="BEGIN Position" {in_position=true;position_lines.clear();continue;}
                 if line=="END Position" {
+                    if !in_position || !position_lines.iter().any(|line| line.starts_with("PI") || line.starts_with("P1") || line.strip_prefix("P+").or_else(||line.strip_prefix("P-")).is_some_and(|pieces|pieces.as_bytes().chunks_exact(4).any(|p|&p[..2]!=b"00"))) {return Err(io::Error::new(io::ErrorKind::InvalidInput,"開始局面の盤面情報がありません。"));}
                     in_position=false;have_position=true;
                     let (initial,tokens,_)=rshogi_csa::parse_csa(&position_lines.join("\n")).map_err(|e|fail(format!("Invalid CSA Position: {e}")))?;
                     initial_sfen=position_initial_sfen(&position_lines,&initial)?;pos=initial;pos.ply=initial_sfen.split_whitespace().last().and_then(|v|v.parse().ok()).ok_or_else(||fail("開始局面の手数が不正です"))?;moves.clear();opening_frames.clear();
@@ -775,7 +779,14 @@ async fn play(
                     continue;
                 }
                 if in_position {position_lines.push(line);continue;}
-                if line=="END Game_Summary" {if inc>0&&byo>0{return Err(io::Error::new(io::ErrorKind::InvalidInput,"秒読みと時間加算を併用する対局条件には対応していません。"));}if !logged_in||!summary_open||!committed||summary_complete||!have_side||!have_total||!have_position{return Err(io::Error::new(io::ErrorKind::InvalidInput,"対局情報が不足または不正なため、開始できません。"));}let opening=opening_clocks(&position_lines,total)?;if opening.len()!=moves.len()+1{return Err(fail("開始局面の指し手と消費時間を読み取れません"));}clocks=opening.last().unwrap().0;for (frame,(clock,elapsed)) in opening_frames.iter_mut().zip(opening){frame["clocks"]=serde_json::json!(clock);frame["elapsed"]=serde_json::json!(elapsed);}if app_mode() && MATCH_GATE.load(std::sync::atomic::Ordering::Relaxed) {
+                if line=="END Game_Summary" {if !logged_in||!summary_open||!committed||summary_complete||!have_side||!have_position{return Err(io::Error::new(io::ErrorKind::InvalidInput,"対局情報が不足または不正なため、開始できません。"));}
+                    let totals=[side_time[0].total.or(common_time.total),side_time[1].total.or(common_time.total)];
+                    let totals=match totals {[Some(b),Some(w)]=>[b,w],_=>return Err(io::Error::new(io::ErrorKind::InvalidInput,"対局情報に持ち時間が不足しています。"))};
+                    inc=[side_time[0].increment.or(common_time.increment).unwrap_or(0),side_time[1].increment.or(common_time.increment).unwrap_or(0)];
+                    let byoyomi=[side_time[0].byoyomi.or(common_time.byoyomi).unwrap_or(0),side_time[1].byoyomi.or(common_time.byoyomi).unwrap_or(0)];
+                    if byoyomi[0]!=byoyomi[1] {return Err(io::Error::new(io::ErrorKind::InvalidInput,"先後で異なる秒読みには対応していません。"));}byo=byoyomi[0];
+                    if inc.iter().any(|v|*v>0)&&byo>0{return Err(io::Error::new(io::ErrorKind::InvalidInput,"秒読みと時間加算を併用する対局条件には対応していません。"));}
+                    let opening=opening_clocks(&position_lines,totals)?;if opening.len()!=moves.len()+1{return Err(fail("開始局面の指し手と消費時間を読み取れません"));}clocks=opening.last().unwrap().0;for (frame,(clock,elapsed)) in opening_frames.iter_mut().zip(opening){frame["clocks"]=serde_json::json!(clock);frame["elapsed"]=serde_json::json!(elapsed);}if app_mode() && MATCH_GATE.load(std::sync::atomic::Ordering::Relaxed) {
                     app_event(serde_json::json!({"event":"match_found","game_id":game_id,"black":black,"white":white,"side":if side=='+' {"black"}else{"white"}}));
                     let replies=MATCH_REPLIES.get().ok_or_else(||fail("マッチングの確認に失敗しました"))?;
                     match tokio::time::timeout(Duration::from_secs(10), replies.lock().await.recv()).await { Ok(Some(()))=>{}, _=>return Err(fail("マッチングの確認がタイムアウトしました")) }
@@ -784,7 +795,7 @@ async fn play(
                     if !summary_complete||game_started{return Err(io::Error::new(io::ErrorKind::InvalidInput,"対局開始の受信順序が不正です。"));}game_started=true;*started=true;
                     if game_id.is_empty() {game_id=line.trim_start_matches("START:").to_owned();}
                     if let Some(dir)=record_dir {match CsaRecord::create(dir,&game_id,&black,&white,&position_lines) {Ok(r)=>record=Some(r),Err(e)=>report_record_error(None,&format!("棋譜を保存できません: {e}"))}}
-                    if show_board {if app_mode(){app_event(serde_json::json!({"event":"game_started","side":if side=='+' {"black"}else{"white"},"game_id":game_id,"board":format_board(&pos),"sfen":pos.to_sfen(),"ply":display_ply(&initial_sfen,moves.len()),"frames":opening_frames,"black":black,"white":white,"clocks":clocks,"increment":inc,"byoyomi":byo}));}else{println!("対局開始（{}）\n{}",if side=='+' {"先手"} else {"後手"},format_board(&pos));}}
+                    if show_board {if app_mode(){app_event(serde_json::json!({"event":"game_started","side":if side=='+' {"black"}else{"white"},"game_id":game_id,"board":format_board(&pos),"sfen":pos.to_sfen(),"ply":display_ply(&initial_sfen,moves.len()),"frames":opening_frames,"black":black,"white":white,"clocks":clocks,"increment":if inc[0]==inc[1]{Some(inc[0])}else{None},"increments":inc,"byoyomi":byo}));}else{println!("対局開始（{}）\n{}",if side=='+' {"先手"} else {"後手"},format_board(&pos));}}
                 }
                 if line.starts_with("START:") && (pos.side_to_move==rshogi_csa::Color::Black)==(side=='+') { go(engine,&initial_sfen,&moves,clocks,inc,byo,false).await?;thinking=true;analysis=Analysis::default();if app_mode(){app_event(serde_json::json!({"event":"search_state","mode":"thinking"}));} }
                 if line.starts_with('+')||line.starts_with('-') {
@@ -805,7 +816,7 @@ async fn play(
                     if show_board && app_mode() {if let Some(comment)=line.split(",'*").nth(1){let mut words=comment.split_whitespace();words.next();let mut pv_pos=pos.clone();for item in words.take(32){let Ok(pv_move)=rshogi_csa::csa_move_to_usi(item,&pv_pos) else{break};if pv_pos.apply_csa_move(item).is_err(){break;}wire_pv.push(pv_move);}}}
                     pos.apply_csa_move(token).map_err(|e|fail(e.to_string()))?;moves.push(usi);
                     let mover=usize::from(line.starts_with('-'));let elapsed=line.split(',').find_map(|s|s.strip_prefix('T')).and_then(|s|s.parse::<u64>().ok()).unwrap_or(0);
-                    clocks[mover]=clocks[mover].saturating_add(inc).saturating_sub(elapsed);
+                    clocks[mover]=clocks[mover].saturating_add(inc[mover]).saturating_sub(elapsed);
                     if show_board {if app_mode(){let evaluation=line.split(",'*").nth(1).and_then(|s|s.split_whitespace().next()).and_then(|s|s.parse::<i32>().ok());app_event(serde_json::json!({"event":"move","move":moves.last().unwrap(),"ply":display_ply(&initial_sfen,moves.len()),"sfen":pos.to_sfen(),"board":format_board(&pos),"clocks":clocks,"elapsed":elapsed,"evaluation":evaluation,"pv":wire_pv}));}else{println!("指し手: {}\n{}",moves.last().unwrap(),format_board(&pos));}}
                     if token.starts_with(if side=='+' {'-'} else {'+'}) {
                         analysis=Analysis::default();
@@ -879,6 +890,7 @@ async fn play(
                     thinking=false;if app_mode(){app_event(serde_json::json!({"event":"search_state","mode":"waiting"}));}
                     let words=line.split_whitespace().collect::<Vec<_>>();
                     pending_ponder=if ponder_enabled && words.get(2)==Some(&"ponder") { words.get(3).map(|v| (*v).to_string()) } else { None };
+                    if best!="resign" && best!="win" { analysis=analysis.for_move(best); }
                     let token=match best {"resign"=>"%TORYO".to_string(),"win"=>"%KACHI".to_string(),_=>rshogi_csa::usi_move_to_csa(best,&pos).map_err(|e|fail(e.to_string()))?};
                     if show_board {if app_mode(){app_event(serde_json::json!({"event":"analysis","move":best,"score":analysis.display_score,"evaluation":analysis.score.map(|v|if side=='+'{v}else{v.saturating_neg()}),"pv":analysis.pv}));}else{println!("自分の指し手: {best}　評価値: {}　読み筋: {}",analysis.display_score.as_deref().unwrap_or("なし"),if analysis.pv.is_empty(){"なし".to_string()}else{analysis.pv.join(" ")});}}
                     let comment = if token.starts_with('%') { String::new() } else { analysis.comment(&pos, side) };
@@ -919,7 +931,7 @@ async fn go(
     initial_sfen: &str,
     moves: &[String],
     clocks: [u64; 2],
-    inc: u64,
+    inc: [u64; 2],
     byo: u64,
     ponder: bool,
 ) -> io::Result<()> {
@@ -938,8 +950,8 @@ async fn go(
             }
         ))
         .await?;
-    let timing = if inc > 0 {
-        format!("binc {} winc {}", inc.saturating_mul(1000), inc.saturating_mul(1000))
+    let timing = if inc.iter().any(|v| *v > 0) {
+        format!("binc {} winc {}", inc[0].saturating_mul(1000), inc[1].saturating_mul(1000))
     } else {
         format!("byoyomi {}", byo.saturating_mul(1000))
     };
@@ -1013,6 +1025,8 @@ fn emit_live_analysis(line: &str, mode: &str, sfen: &str, side: char) {
     app_event(serde_json::json!({"event":"analysis_update","primary":primary,"mode":mode,"depth":live.depth,"seldepth":live.seldepth,"time_ms":number("time"),"nodes":nodes,"nps":nps,"bound":live.bound,"sfen":sfen,"score":live.display_score,"evaluation":live.score.map(|v|if side=='+'{v}else{v.saturating_neg()}),"pv":live.pv}));
 }
 
+#[derive(Clone, Default)]
+struct Candidate { score: Option<i32>, display_score: Option<String>, pv: Vec<String> }
 #[derive(Default)]
 struct Analysis {
     depth: Option<u32>,
@@ -1022,9 +1036,26 @@ struct Analysis {
     score: Option<i32>,
     pv: Vec<String>,
     display_score: Option<String>,
+    candidates: std::collections::HashMap<String, Candidate>,
 }
 impl Analysis {
-    fn update(&mut self, line: &str) { self.update_info(line, true); }
+    fn update(&mut self, line: &str) {
+        self.update_info(line, true);
+        let mut snapshot=Analysis::default();snapshot.update_info(line,false);
+        if let Some(first)=snapshot.pv.first() {
+            if snapshot.score.is_some() {
+                self.candidates.insert(first.clone(),Candidate{score:snapshot.score,display_score:snapshot.display_score,pv:snapshot.pv});
+            } else if let Some(candidate)=self.candidates.get_mut(first) { candidate.pv=snapshot.pv; }
+        }
+    }
+    fn for_move(self, best: &str) -> Self {
+        if let Some(candidate)=self.candidates.get(best) {
+            let mut selected=Self::default();selected.score=candidate.score;selected.display_score=candidate.display_score.clone();selected.pv=candidate.pv.clone();return selected;
+        }
+        let mut selected=Self::default();
+        if self.pv.first().is_some_and(|m|m==best) {selected.pv=self.pv;}
+        selected
+    }
     fn update_info(&mut self, line: &str, primary_only: bool) {
         if !line.starts_with("info ") {
             return;

@@ -14,7 +14,7 @@ with tempfile.TemporaryDirectory() as d:
    conn,_=listener.accept();conn.settimeout(15)
    with conn,conn.makefile('rwb',buffering=0) as f:
     assert f.readline().startswith(b'LOGIN Test ')
-    f.write(b'LOGIN:Test OK\nBEGIN Game_Summary\n'+fields+b'END Game_Summary\n')
+    f.write(b'LOGIN:Test OK\nBEGIN Game_Summary\nYour_Turn:+\nTotal_Time:60\n'+fields+b'BEGIN Position\nPI\n+\nEND Position\nEND Game_Summary\n')
     assert f.readline()==b'', 'unsupported time control must not be accepted'
    p.wait(timeout=10);out,err=p.communicate(timeout=10)
    events=[json.loads(line) for line in out.splitlines()]

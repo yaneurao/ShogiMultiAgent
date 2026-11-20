@@ -45,7 +45,7 @@ async function readPendingGames(){
 }
 function finishQuit(){Promise.allSettled([historyWrites,profileWrites]).then(()=>app.quit());}
 function markIncompleteRecord(game){if(!game?.recordPath||game.recordError)return;const message='対局が中断したため、CSA棋譜が最後まで保存されていません。';game.recordError=message;game.recordErrors={...(game.recordErrors||{}),[game.recordPath]:message};}
-function saveInterrupted(s){s.gameInProgress=false;if(s.game&&!s.game.recorded){markIncompleteRecord(s.game);s.game.recorded=true;saveHistory(s,'#CENSORED');}}
+function saveInterrupted(s){s.gameInProgress=false;if(s.game&&!s.game.recorded){markIncompleteRecord(s.game);s.game.recorded=true;saveHistory(s,'#UNKNOWN');}}
 const historyKey=(host,id,black,white)=>crypto.createHash('sha256').update(JSON.stringify([host,id,black,white])).digest('hex');
 function recordCandidates(entry){return [...new Set([entry?.recordPath,...(entry?.recordPaths||[])].filter(Boolean))].filter(p=>!entry.recordErrors?.[p]&&!(p===entry.recordPath&&entry.recordError));}
 const recordsList=()=>[...records.values()].sort((a,b)=>b.startedAt-a.startedAt).map(({game,...entry})=>entry);

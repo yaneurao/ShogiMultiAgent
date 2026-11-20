@@ -24,3 +24,7 @@ jobs:
       - run: python tests/usi_agent_busy_keepalive_e2e.py
       - run: python tests/usi_agent_lost_gui_e2e.py
       - run: python tests/usi_agent_reconnect_opening_e2e.py
+      - run: python tests/usi_agent_asymmetric_time_e2e.py
+      - run: python tests/usi_agent_selected_multipv_e2e.py
+      - run: python tests/usi_agent_prestart_e2e.py
+      - run: python tests/usi_agent_time_unit_e2e.py
