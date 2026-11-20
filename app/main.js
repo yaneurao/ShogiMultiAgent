@@ -48,6 +48,23 @@ function markIncompleteRecord(game){if(!game?.recordPath||game.recordError)retur
 function saveInterrupted(s){s.gameInProgress=false;if(s.game&&!s.game.recorded){markIncompleteRecord(s.game);s.game.recorded=true;saveHistory(s,'#UNKNOWN');}}
 const historyKey=(host,id,black,white)=>crypto.createHash('sha256').update(JSON.stringify([host,id,black,white])).digest('hex');
 function recordCandidates(entry){return [...new Set([entry?.recordPath,...(entry?.recordPaths||[])].filter(Boolean))].filter(p=>!entry.recordErrors?.[p]&&!(p===entry.recordPath&&entry.recordError));}
+function removeDeletedRecordPaths(entry,removed){
+ const paths=[...new Set([entry.recordPath,...(entry.recordPaths||[])].filter(p=>p&&!removed.has(p)))];
+ const errors=Object.fromEntries(Object.entries(entry.recordErrors||{}).filter(([p])=>!removed.has(p)));
+ const preferred=paths.includes(entry.recordPath)?entry.recordPath:null;
+ const recordPath=[preferred,...paths].find(p=>p&&!errors[p])||preferred||paths[0]||null;
+ return {...entry,recordPath,recordPaths:paths,recordErrors:errors,recordError:recordPath?(errors[recordPath]||(recordPath===entry.recordPath?entry.recordError:null)||null):null};
+}
+async function reconcileDeletedRecordPaths(removed){
+ const problems=[];
+ for(const [id,entry] of records){
+  if(![entry.recordPath,...(entry.recordPaths||[])].some(p=>removed.has(p)))continue;
+  const updated=removeDeletedRecordPaths(entry,removed);records.set(id,updated);
+  try{const target=path.join(historyDir(),id+'.json');let full=JSON.parse(await fs.readFile(target,'utf8'));full=removeDeletedRecordPaths(full,removed);if(full.game)full.game=removeDeletedRecordPaths(full.game,removed);const temp=target+'.repair.tmp';await fs.writeFile(temp,JSON.stringify(full));await fs.rename(temp,target);}
+  catch(e){problems.push(`${id}: ${e.message}`);}
+ }
+ return problems;
+}
 const recordsList=()=>[...records.values()].sort((a,b)=>b.startedAt-a.startedAt).map(({game,...entry})=>entry);
 async function loadHistory(){try{await fs.mkdir(historyDir(),{recursive:true});const recovered=await readPendingGames();historyRecoveryPending=recovered.length>0;releasePendingScan();const names=(await fs.readdir(historyDir())).filter(name=>/^[a-f0-9]{64}\.json$/.test(name));for(let offset=0;offset<names.length;offset+=8){await Promise.all(names.slice(offset,offset+8).map(async name=>{try{const entry=JSON.parse(await fs.readFile(path.join(historyDir(),name),'utf8'));if(entry.id===name.slice(0,-5)&&entry.game?.frames?.length&&!records.has(entry.id)){const {game:_,...metadata}=entry;records.set(entry.id,metadata);}else if(entry.id!==name.slice(0,-5)||!entry.game?.frames?.length){historyLoadErrors++;}}catch(e){historyLoadErrors++;console.error('対局履歴の読み込み失敗:',name,e.message);}}));}return recovered;}catch(e){historyLoadErrors++;dialog.showErrorBox('対局履歴を読み込めません',e.message);}finally{releasePendingScan();historyLoading=false;notify();if(windowRef&&!windowRef.isDestroyed())windowRef.webContents.send('records-changed');}}
 
@@ -146,16 +163,17 @@ app.whenReady().then(async()=>{
   if(historyLoading||historyRecoveryPending)throw Error('棋譜の読み込み・復旧が完了してから削除してください。');
   const unique=[...new Set(ids)];
   const operation=historyWrites.then(async()=>{await historyReady;const deleted=[],updated=[],failed=[],owners=new Map(),selected=new Set(unique);
-   const pathsOf=entry=>[...new Set((entry.recordPaths||[entry.recordPath]).filter(Boolean))];
+   const pathsOf=entry=>[...new Set([entry.recordPath,...(entry.recordPaths||[])].filter(Boolean))];
    for(const [id,entry] of records)for(const p of pathsOf(entry)){if(!owners.has(p))owners.set(p,new Set());owners.get(p).add(id);}
    const active=id=>[...sessions.values()].some(s=>s.gameInProgress&&s.game&&historyKey(s.host,s.game_id,s.game.black,s.game.white)===id);
-   for(const id of unique){const entry=records.get(id);if(!entry){failed.push({id,error:'棋譜が見つかりません。'});continue;}if(active(id)){failed.push({id,error:'対局中のため削除できません。'});continue;}
+   for(const id of unique){const entry=records.get(id);if(!entry){failed.push({id,error:'棋譜が見つかりません。'});continue;}if(active(id)){failed.push({id,error:'対局中のため削除できません。'});continue;}const removed=new Set();
     try{const paths=pathsOf(entry);if(options.removeCsa){for(const filePath of paths){if([...owners.get(filePath)].some(other=>other!==id&&(!selected.has(other)||active(other))))throw Error('CSAファイルが他の棋譜から参照されています。関連する棋譜も選択してください。');}
-     for(const filePath of paths)try{await fs.unlink(filePath);}catch(e){if(e.code!=='ENOENT')throw Error('CSAファイルを削除できません: '+e.message);}}
+     for(const filePath of paths)try{await fs.unlink(filePath);removed.add(filePath);}catch(e){if(e.code!=='ENOENT')throw Error('CSAファイルを削除できません: '+e.message);removed.add(filePath);}}
      const target=path.join(historyDir(),id+'.json');if(options.removeHistory){try{await fs.unlink(target);}catch(e){if(e.code!=='ENOENT')throw Error('対局履歴を削除できません: '+e.message);}records.delete(id);deleted.push(id);}
      else{const full=JSON.parse(await fs.readFile(target,'utf8'));full.recordPath=null;full.recordPaths=[];full.recordError=null;full.recordErrors={};if(full.game){full.game.recordPath=null;full.game.recordError=null;full.game.recordErrors={};}const temp=target+'.tmp';await fs.writeFile(temp,JSON.stringify(full));await fs.rename(temp,target);const {game:_,...metadata}=full;records.set(id,metadata);updated.push(id);}
      if(options.removeHistory||options.removeCsa)for(const p of paths)owners.get(p).delete(id);
-    }catch(e){failed.push({id,error:e.message});}
+     if(removed.size){const problems=await reconcileDeletedRecordPaths(removed);if(problems.length)failed.push({id,error:'CSAは削除済みですが、関連する履歴の更新に失敗しました: '+problems.join(' / ')});}
+    }catch(e){let error=e.message;if(removed.size){const problems=await reconcileDeletedRecordPaths(removed);error+=`（CSA ${removed.size}件は削除済み）`;if(problems.length)error+='。履歴の更新にも失敗しました: '+problems.join(' / ');}failed.push({id,error});}
    }
    if(windowRef&&!windowRef.isDestroyed())windowRef.webContents.send('records-changed');return {deleted,updated,failed};
   });historyWrites=operation.catch(()=>{});return operation;

@@ -635,7 +635,7 @@ impl CsaRecord {
             _ => None,
         };
         let written = (|| -> io::Result<()> {
-            if !self.special_written { if let Some(marker) = marker { writeln!(self.file, "{marker}")?; } }
+            if !self.special_written { if let Some(marker) = marker.or(if verdict=="#DRAW" {Some("%HIKIWAKE")} else {None}) { writeln!(self.file, "{marker}")?; } }
             if let (Some(code), Some((b, w))) = (code, results) { writeln!(self.file, "'summary:{code}:{black} {b}:{white} {w}")?; }
             writeln!(self.file, "'$END_TIME:{}", now.format("%Y/%m/%d %H:%M:%S"))?;
             self.file.flush()
@@ -771,8 +771,12 @@ async fn play(
                 if line=="BEGIN Position" {in_position=true;position_lines.clear();continue;}
                 if line=="END Position" {
                     if !in_position || !position_lines.iter().any(|line| line.starts_with("PI") || line.starts_with("P1") || line.strip_prefix("P+").or_else(||line.strip_prefix("P-")).is_some_and(|pieces|pieces.as_bytes().chunks_exact(4).any(|p|&p[..2]!=b"00"))) {return Err(io::Error::new(io::ErrorKind::InvalidInput,"開始局面の盤面情報がありません。"));}
+                    let ranks:Vec<u8>=position_lines.iter().filter_map(|line|{let b=line.as_bytes();(b.len()>=2&&b[0]==b'P'&&(b'1'..=b'9').contains(&b[1])).then(||b[1])}).collect();
+                    if !ranks.is_empty() && ((b'1'..=b'9').any(|rank|ranks.iter().filter(|r|**r==rank).count()!=1)) {return Err(io::Error::new(io::ErrorKind::InvalidInput,"開始局面の盤面情報が不足または重複しています。"));}
                     in_position=false;have_position=true;
                     let (initial,tokens,_)=rshogi_csa::parse_csa(&position_lines.join("\n")).map_err(|e|fail(format!("Invalid CSA Position: {e}")))?;
+                    let board=initial.to_sfen();let board=board.split_whitespace().next().unwrap_or("");
+                    if board.chars().filter(|c|*c=='K').count()!=1 || board.chars().filter(|c|*c=='k').count()!=1 {return Err(io::Error::new(io::ErrorKind::InvalidInput,"開始局面の玉の配置が不正です。"));}
                     initial_sfen=position_initial_sfen(&position_lines,&initial)?;pos=initial;pos.ply=initial_sfen.split_whitespace().last().and_then(|v|v.parse().ok()).ok_or_else(||fail("開始局面の手数が不正です"))?;moves.clear();opening_frames.clear();
                     if show_board && app_mode() {opening_frames.push(serde_json::json!({"sfen":initial_sfen,"ply":display_ply(&initial_sfen,0)}));}
                     for token in tokens {let usi=rshogi_csa::csa_move_to_usi(&token,&pos).map_err(|e|fail(e.to_string()))?;pos.apply_csa_move(&token).map_err(|e|fail(e.to_string()))?;moves.push(usi);if show_board && app_mode() {opening_frames.push(serde_json::json!({"sfen":pos.to_sfen(),"ply":display_ply(&initial_sfen,moves.len()),"move":moves.last()}));}}
@@ -1037,11 +1041,28 @@ struct Analysis {
     pv: Vec<String>,
     display_score: Option<String>,
     candidates: std::collections::HashMap<String, Candidate>,
+    pending_part: Option<(u32, u32, Candidate)>,
 }
 impl Analysis {
     fn update(&mut self, line: &str) {
         self.update_info(line, true);
         let mut snapshot=Analysis::default();snapshot.update_info(line,false);
+        let fields:Vec<_>=line.split_whitespace().collect();
+        let multipv=fields.iter().position(|v|*v=="multipv").map(|i|fields.get(i+1).and_then(|v|v.parse::<u32>().ok())).unwrap_or(Some(1));
+        // Pair split messages only when both identify the same depth and
+        // MultiPV slot; unrelated or ambiguous updates must not share scores.
+        if (snapshot.score.is_some() || !snapshot.pv.is_empty()) && (snapshot.depth.is_none() || multipv.is_none()) {self.pending_part=None;}
+        if let (Some(depth),Some(slot))=(snapshot.depth,multipv) {
+            if snapshot.score.is_some() != !snapshot.pv.is_empty() {
+                let partial=Candidate{score:snapshot.score,display_score:snapshot.display_score.clone(),pv:snapshot.pv.clone()};
+                if let Some((d,n,previous))=self.pending_part.take() {
+                    if d==depth && n==slot && previous.score.is_some()!=partial.score.is_some() {
+                        let (score,pv)=if partial.score.is_some(){(partial,previous)}else{(previous,partial)};
+                        if let Some(first)=pv.pv.first(){self.candidates.insert(first.clone(),Candidate{score:score.score,display_score:score.display_score,pv:pv.pv});}
+                    } else {self.pending_part=Some((depth,slot,partial));}
+                } else {self.pending_part=Some((depth,slot,partial));}
+            } else if snapshot.score.is_some() && !snapshot.pv.is_empty() {self.pending_part=None;}
+        }
         if let Some(first)=snapshot.pv.first() {
             if snapshot.score.is_some() {
                 self.candidates.insert(first.clone(),Candidate{score:snapshot.score,display_score:snapshot.display_score,pv:snapshot.pv});

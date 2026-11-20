@@ -38,6 +38,7 @@ python3 tests/usi_agent_busy_keepalive_e2e.py
 python3 tests/usi_agent_reconnect_opening_e2e.py
 python3 tests/usi_agent_asymmetric_time_e2e.py
 python3 tests/usi_agent_selected_multipv_e2e.py
+python3 tests/usi_agent_position_validation_e2e.py
 ~~~
 
 これらの通信テストはローカルの模擬 CSA サーバーと模擬 USI エンジンを使い、公開サーバーに対局を投入しない。先読みの命中・読み外し・停止・切断・連続対局や、探索情報の通知を検証する。tests/ のほかの usi_agent_*_e2e.py も、変更箇所に応じて実行する。タイムアウトを検証するテストには待ち時間がある。
@@ -50,6 +51,7 @@ PLAYWRIGHT_MODULE=/path/to/node_modules/playwright xvfb-run -a node tests/partic
 PLAYWRIGHT_MODULE=/path/to/node_modules/playwright xvfb-run -a node tests/participant_record_failure_e2e.cjs
 PLAYWRIGHT_MODULE=/path/to/node_modules/playwright xvfb-run -a node tests/participant_finish_recovery_e2e.cjs
 PLAYWRIGHT_MODULE=/path/to/node_modules/playwright xvfb-run -a node tests/participant_interrupted_result_e2e.cjs
+PLAYWRIGHT_MODULE=/path/to/node_modules/playwright xvfb-run -a node tests/participant_partial_deletion_e2e.cjs
 ~~~
 
 非同期の条件を待つ画面テストでは tests/wait_for_async.cjs を使う。Playwright の waitForFunction に async 関数を渡すと Promise 自体が真となり、false でも待たずに完了するため使わない。

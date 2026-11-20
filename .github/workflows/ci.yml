@@ -28,3 +28,4 @@ jobs:
       - run: python tests/usi_agent_selected_multipv_e2e.py
       - run: python tests/usi_agent_prestart_e2e.py
       - run: python tests/usi_agent_time_unit_e2e.py
+      - run: python tests/usi_agent_position_validation_e2e.py
