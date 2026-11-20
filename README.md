@@ -12,4 +12,6 @@ Windows x64で、USIエンジンをShogiZoneやfloodgateなどのCSA対局サー
 
 アプリバナーです。ご自由にお使いください。
 
-![ShogiMultiAgent のアプリバナー](docs/images/ShogiMultiAgent-banner600x200.jpg)
+<p align="center">
+  <img src="docs/images/ShogiMultiAgent-banner600x200.jpg" alt="ShogiMultiAgent のアプリバナー" width="480px">
+</p>
