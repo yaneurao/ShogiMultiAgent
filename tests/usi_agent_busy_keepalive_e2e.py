@@ -22,7 +22,7 @@ for line in sys.stdin:
  listener=socket.socket();listener.bind(('127.0.0.1',0));listener.listen();listener.settimeout(15)
  p=subprocess.Popen([agent,'--app-mode'],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
  try:
-  p.stdin.write(json.dumps({'engine':str(engine),'host':f'127.0.0.1:{listener.getsockname()[1]}','name':'Test'})+'\n');p.stdin.flush()
+  p.stdin.write(json.dumps({'engine':str(engine),'host':f'127.0.0.1:{listener.getsockname()[1]}','name':'Test','record_dir':str(Path(d,'kif'))})+'\n');p.stdin.flush()
   conn,_=listener.accept();conn.settimeout(36)
   with conn,conn.makefile('rwb',buffering=0) as f:
    assert f.readline().startswith(b'LOGIN Test ')
@@ -32,6 +32,9 @@ for line in sys.stdin:
    p.stdin.write('q\n');p.stdin.flush();time.sleep(.2);f.write(b'#ABNORMAL\n#CENSORED\n')
    assert f.readline()==b'LOGOUT\n'
   out,err=p.communicate(timeout=10);assert p.returncode==0,(out,err)
+  events=[json.loads(line) for line in out.splitlines()];names=[event['event'] for event in events]
+  assert 'record' in names and 'game_started' in names and 'game_finished' in names and 'exited' in names,names
+  assert names.index('record')<names.index('game_started')<names.index('game_finished')<names.index('exited'),names
  finally:
   listener.close()
   if p.poll() is None:p.kill();p.wait()

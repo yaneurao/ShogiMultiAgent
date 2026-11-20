@@ -1,4 +1,5 @@
 'use strict';
+const {waitForAsync}=require('./wait_for_async.cjs');
 const {_electron:electron}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
 const assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path'),net=require('node:net');
 (async()=>{
@@ -26,7 +27,7 @@ for line in sys.stdin:
   const page=await app.firstWindow();assert.match(await page.locator('#live-search h3').textContent(),/思考ログ/);await page.evaluate(()=>renderLiveSearch({search:{mode:'history',rows:[]}}));assert.equal(await page.locator('#live-search-rows').textContent(),'');
   await page.evaluate(async({engine,port})=>{await window.arena.save({label:'通常思考',name:'Test',host:`127.0.0.1:${port}`,pool:'test',engine,options:'',ponder:false});const state=await window.arena.state();await window.arena.start(state.profiles[0].id);},{engine,port:server.address().port});
   await page.locator('#view-tab-participation').click();
-  await page.waitForFunction(async()=>{const s=(await window.arena.state()).sessions[0];return s?.search?.rows?.length===6&&s.search.mode==='waiting';});
+  await waitForAsync(page,async()=>{const s=(await window.arena.state()).sessions[0];return s?.search?.rows?.length===6&&s.search.mode==='waiting';});
   await page.waitForFunction(()=>document.querySelectorAll('.live-search-row').length===6);
   const cells=await page.locator('.live-search-row').evaluateAll(rows=>rows.map(row=>[...row.children].map(cell=>cell.textContent)));
   assert.deepEqual(cells.map(row=>row[1]),['37','37','5','23','92','92']);

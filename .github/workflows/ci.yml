@@ -6,11 +6,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
       - uses: actions/setup-python@v5
         with:
           python-version: '3.x'
+      - run: node --test tests/wait_for_async_test.cjs
       - run: cargo test --locked --manifest-path adapter/Cargo.toml --target-dir target
       - run: cargo build --locked --manifest-path adapter/Cargo.toml --target-dir target
       - run: python tests/usi_agent_ponder_e2e.py
       - run: python tests/usi_agent_ponder_live_e2e.py
       - run: python tests/usi_agent_live_e2e.py
+      - run: python tests/usi_agent_ponder_timeout_e2e.py
+      - run: python tests/usi_agent_abort_restart_e2e.py
+      - run: python tests/usi_agent_record_failure_e2e.py
+      - run: python tests/usi_agent_busy_keepalive_e2e.py
+      - run: python tests/usi_agent_lost_gui_e2e.py

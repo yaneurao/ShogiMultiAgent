@@ -31,6 +31,10 @@ cargo build --locked --manifest-path adapter/Cargo.toml --target-dir target
 python3 tests/usi_agent_ponder_e2e.py
 python3 tests/usi_agent_ponder_live_e2e.py
 python3 tests/usi_agent_live_e2e.py
+python3 tests/usi_agent_ponder_timeout_e2e.py
+python3 tests/usi_agent_abort_restart_e2e.py
+python3 tests/usi_agent_record_failure_e2e.py
+python3 tests/usi_agent_busy_keepalive_e2e.py
 ~~~
 
 これらの通信テストはローカルの模擬 CSA サーバーと模擬 USI エンジンを使い、公開サーバーに対局を投入しない。先読みの命中・読み外し・停止・切断・連続対局や、探索情報の通知を検証する。tests/ のほかの usi_agent_*_e2e.py も、変更箇所に応じて実行する。タイムアウトを検証するテストには待ち時間がある。
@@ -40,7 +44,10 @@ participant_*_e2e.cjs は実際の Electron と Playwright を使う画面テス
 ~~~sh
 PLAYWRIGHT_MODULE=/path/to/node_modules/playwright xvfb-run -a node tests/participant_app_e2e.cjs
 PLAYWRIGHT_MODULE=/path/to/node_modules/playwright xvfb-run -a node tests/participant_live_search_e2e.cjs
+PLAYWRIGHT_MODULE=/path/to/node_modules/playwright xvfb-run -a node tests/participant_record_failure_e2e.cjs
 ~~~
+
+非同期の条件を待つ画面テストでは tests/wait_for_async.cjs を使う。Playwright の waitForFunction に async 関数を渡すと Promise 自体が真となり、false でも待たずに完了するため使わない。
 
 画面の変更では、接続ごとの情報の分離、横幅を変えた表示、ボタンの有効・無効、エラー表示位置を確認する。通信変更では、先後両方、先読み命中・外れ、終局・切断、終了予約と連続対局を確認する。模擬相手での成功だけで、すべての実エンジン・CSA サーバーとの互換性が保証されるわけではない。
 
