@@ -31,11 +31,11 @@ for line in sys.stdin:
   conn,_=server.accept();conn.settimeout(10)
   with conn,conn.makefile('rwb',buffering=0) as f:
    assert f.readline().startswith(b'LOGIN ')
-   f.write(b'LOGIN:Test OK\nBEGIN Game_Summary\nGame_ID:test\nName+:Test\nName-:Other\nYour_Turn:+\nTotal_Time:60\nIncrement:2\nBEGIN Position\nPI\n+\nEND Position\nEND Game_Summary\n')
-   assert f.readline()==b'AGREE\n';f.write(b'START:test\n');assert f.readline().startswith(b'+7776FU');f.write(b'+7776FU,T0\n')
+   f.write(b'LOGIN:Test OK\nBEGIN Game_Summary\nGame_ID:test\nName+:Test\nName-:Other\nYour_Turn:+\nTotal_Time:60\nIncrement:2\nBEGIN Position\n\'ShogiZone_Initial_Ply:24\nPI\n+\nEND Position\nEND Game_Summary\n')
+   assert f.readline()==b'AGREE\n';f.write(b'START:test\n');start=find(lambda e:e.get('event')=='game_started');initial=find(lambda e:e.get('event')=='analysis_update');assert start['frames'][0]['sfen']==initial['sfen'] and initial['sfen'].split()[-1]=='24',(start,initial);assert f.readline().startswith(b'+7776FU');f.write(b'+7776FU,T0\n')
    find(lambda e:e.get('event')=='search_state' and e.get('mode')=='pondering')
    e=find(lambda e:e.get('event')=='analysis_update' and e.get('mode')=='pondering')
-   assert e['depth']==17 and e['score']=='42' and e['pv']==['2g2f','8c8d'] and e['sfen'].split()[-1]=='3',e
+   assert e['depth']==17 and e['score']=='42' and e['pv']==['2g2f','8c8d'] and e['sfen'].split()[-1]=='26',e
    f.write(b'-3334FU,T0\n');find(lambda e:e.get('event')=='search_state' and e.get('mode')=='thinking');assert f.readline().startswith(b'+2726FU')
    f.write(b'+2726FU,T0\n#RESIGN\n#WIN\n');proc.stdin.write('q\n');proc.stdin.flush()
   proc.wait(timeout=10);assert proc.returncode==0,proc.stderr.read()

@@ -6,7 +6,7 @@ if sys.platform=='win32':
  print('SKIP: RLIMIT_FSIZE requires POSIX');raise SystemExit(0)
 import resource,signal
 agent=Path(os.environ.get('SHOGIZONE_USI_AGENT','target/debug/shogizone-participant-agent')).resolve()
-for limit in (115,160):
+for limit in (30,115,160):
  with tempfile.TemporaryDirectory(prefix='record-failure-') as d:
   root=Path(d);engine=root/'engine';engine.write_text('''#!/usr/bin/env python3
 import sys

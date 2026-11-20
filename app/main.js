@@ -47,6 +47,7 @@ function finishQuit(){Promise.allSettled([historyWrites,profileWrites]).then(()=
 function markIncompleteRecord(game){if(!game?.recordPath||game.recordError)return;const message='対局が中断したため、CSA棋譜が最後まで保存されていません。';game.recordError=message;game.recordErrors={...(game.recordErrors||{}),[game.recordPath]:message};}
 function saveInterrupted(s){s.gameInProgress=false;if(s.game&&!s.game.recorded){markIncompleteRecord(s.game);s.game.recorded=true;saveHistory(s,'#CENSORED');}}
 const historyKey=(host,id,black,white)=>crypto.createHash('sha256').update(JSON.stringify([host,id,black,white])).digest('hex');
+function recordCandidates(entry){return [...new Set([entry?.recordPath,...(entry?.recordPaths||[])].filter(Boolean))].filter(p=>!entry.recordErrors?.[p]&&!(p===entry.recordPath&&entry.recordError));}
 const recordsList=()=>[...records.values()].sort((a,b)=>b.startedAt-a.startedAt).map(({game,...entry})=>entry);
 async function loadHistory(){try{await fs.mkdir(historyDir(),{recursive:true});const recovered=await readPendingGames();historyRecoveryPending=recovered.length>0;releasePendingScan();const names=(await fs.readdir(historyDir())).filter(name=>/^[a-f0-9]{64}\.json$/.test(name));for(let offset=0;offset<names.length;offset+=8){await Promise.all(names.slice(offset,offset+8).map(async name=>{try{const entry=JSON.parse(await fs.readFile(path.join(historyDir(),name),'utf8'));if(entry.id===name.slice(0,-5)&&entry.game?.frames?.length&&!records.has(entry.id)){const {game:_,...metadata}=entry;records.set(entry.id,metadata);}else if(entry.id!==name.slice(0,-5)||!entry.game?.frames?.length){historyLoadErrors++;}}catch(e){historyLoadErrors++;console.error('対局履歴の読み込み失敗:',name,e.message);}}));}return recovered;}catch(e){historyLoadErrors++;dialog.showErrorBox('対局履歴を読み込めません',e.message);}finally{releasePendingScan();historyLoading=false;notify();if(windowRef&&!windowRef.isDestroyed())windowRef.webContents.send('records-changed');}}
 
@@ -169,7 +170,7 @@ app.whenReady().then(async()=>{
   const operation=historyWrites.then(async()=>{const exported=[],failed=[];
    for(const id of unique){const entry=records.get(id);if(!entry){failed.push({id,error:'棋譜が見つかりません。'});continue;}
     if([...sessions.values()].some(s=>s.gameInProgress&&s.game&&historyKey(s.host,s.game_id,s.game.black,s.game.white)===id)){failed.push({id,error:'対局中の棋譜は書き出せません。'});continue;}
-    const sources=[...new Set([entry.recordPath,...(entry.recordPaths||[])].filter(Boolean))].filter(p=>!entry.recordErrors?.[p]&&!(p===entry.recordPath&&entry.recordError));if(!sources.length){failed.push({id,error:entry.recordError||'CSAファイルが保存されていません。'});continue;}
+    const sources=recordCandidates(entry);if(!sources.length){failed.push({id,error:entry.recordError||'CSAファイルが保存されていません。'});continue;}
     let copied=false,lastError='CSAファイルが見つかりません。';
     for(const source of sources){const name=path.basename(source),ext=path.extname(name),stem=path.basename(name,ext);for(let n=0;n<10000;n++){const filename=n===0?name:`${stem}-${n}${ext}`;try{await fs.copyFile(source,path.join(destination,filename),require('node:fs').constants.COPYFILE_EXCL);exported.push({id,filename});copied=true;break;}catch(e){if(e.code==='EEXIST'){lastError='同名ファイルが多すぎるため書き出せません。';continue;}if(e.code==='ENOENT'){lastError='CSAファイルまたは書き出し先が見つかりません。';break;}lastError='書き出しに失敗しました: '+e.message;break;}}if(copied)break;}
     if(!copied)failed.push({id,error:lastError});
@@ -178,9 +179,9 @@ app.whenReady().then(async()=>{
   });historyWrites=operation.catch(()=>{});return operation;
  });
  ipcMain.handle('record-game',async(_e,id)=>{if(!records.has(id))return null;const entry=JSON.parse(await fs.readFile(path.join(historyDir(),id+'.json'),'utf8'));return entry.game||null;});
- ipcMain.handle('reveal-record',async(_e,id)=>{const p=records.get(id)?.recordPath;if(!p)throw Error('CSAファイルがありません。');try{await fs.access(p);}catch{throw Error('CSAファイルが見つかりません。移動または削除されている可能性があります。');}shell.showItemInFolder(p);});
- ipcMain.handle('copy-record',async(_e,id)=>{const entry=records.get(id),p=entry?.recordPath;if(entry?.recordError)throw Error(entry.recordError);if(!p)throw Error('CSAファイルがありません。');try{clipboard.writeText(await fs.readFile(p,'utf8'));}catch(e){throw Error('CSAファイルをコピーできません: '+e.message);}});
- ipcMain.handle('open-record',async(_e,id)=>{const entry=records.get(id),p=entry?.recordPath;if(entry?.recordError)throw Error(entry.recordError);if(!p)throw Error('CSAファイルがありません。');const error=await shell.openPath(p);if(error)throw Error('CSAファイルを開けません: '+error);});
+ ipcMain.handle('reveal-record',async(_e,id)=>{const entry=records.get(id),paths=[...new Set([...recordCandidates(entry),entry?.recordPath].filter(Boolean))];if(!paths.length)throw Error('CSAファイルがありません。');for(const p of paths){try{await fs.access(p);shell.showItemInFolder(p);return;}catch{}}throw Error('CSAファイルが見つかりません。移動または削除されている可能性があります。');});
+ ipcMain.handle('copy-record',async(_e,id)=>{const entry=records.get(id),paths=recordCandidates(entry);if(!paths.length)throw Error(entry?.recordError||'CSAファイルがありません。');let error;for(const p of paths){try{clipboard.writeText(await fs.readFile(p,'utf8'));return;}catch(e){error=e;}}throw Error('CSAファイルをコピーできません: '+error.message);});
+ ipcMain.handle('open-record',async(_e,id)=>{const entry=records.get(id),paths=recordCandidates(entry);if(!paths.length)throw Error(entry?.recordError||'CSAファイルがありません。');let error;for(const p of paths){try{await fs.access(p);error=await shell.openPath(p);if(!error)return;}catch(e){error=e.message;}}throw Error('CSAファイルを開けません: '+error);});
  ipcMain.handle('open-game-url',async(_e,id)=>{const s=sessions.get(id),url=s&&gameUrl(s.host,s.game_id);if(!url)throw Error('この対局の観戦ページは利用できません。');await shell.openExternal(url);});
  ipcMain.handle('game',(_e,id)=>sessions.get(id)?.game||null);
  ipcMain.handle('search-history',(_e,id,sfen,generation)=>{const s=sessions.get(id);return s?.game?.generation===generation?s.searchHistory?.get(sfen)||null:null;});

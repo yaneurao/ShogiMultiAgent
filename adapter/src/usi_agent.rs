@@ -577,10 +577,14 @@ impl CsaRecord {
                 Err(e) => Some(Err(e)),
             }
         }).unwrap_or_else(|| Err(fail("棋譜ファイル名を確保できません")))?;
-        writeln!(file, "V2.2\nN+{black}\nN-{white}\n$EVENT:{id}\n$START_TIME:{}", now.format("%Y/%m/%d %H:%M:%S"))?;
-        for line in position { writeln!(file, "{line}")?; }
         if app_mode() { app_event(serde_json::json!({"event":"record","path":path.to_string_lossy()})); } else { println!("棋譜保存: {}", path.display()); }
-        Ok(Self { file, path, failed: false, special_written: false })
+        let written = (|| -> io::Result<()> {
+            writeln!(file, "V2.2\nN+{black}\nN-{white}\n$EVENT:{id}\n$START_TIME:{}", now.format("%Y/%m/%d %H:%M:%S"))?;
+            for line in position { writeln!(file, "{line}")?; }
+            Ok(())
+        })();
+        let failed = if let Err(e) = written { report_record_error(Some(&path), &format!("棋譜を保存できません: {e}")); true } else { false };
+        Ok(Self { file, path, failed, special_written: false })
     }
     fn write_wire(&mut self, line: &str) {
         use std::io::Write;
@@ -668,22 +672,23 @@ fn position_initial_sfen(lines: &[String], initial: &rshogi_csa::Position) -> io
 fn display_ply(initial_sfen: &str, moves: usize) -> u64 {
     initial_sfen.split_whitespace().last().and_then(|v| v.parse::<u64>().ok()).unwrap_or(1).saturating_sub(1).saturating_add(moves as u64)
 }
-fn opening_clocks(lines: &[String], total: u64, increment: u64) -> io::Result<Vec<([u64; 2], Option<u64>)>> {
-    let mut moves: Vec<(usize, Option<u64>)> = Vec::new();
+fn opening_clocks(lines: &[String], total: u64) -> io::Result<Vec<([u64; 2], Option<u64>)>> {
+    let mut moves: Vec<Option<u64>> = Vec::new();
     for line in lines {
         for part in line.split(',') {
             if (part.starts_with('+') || part.starts_with('-')) && part.len() >= 7 {
-                moves.push((usize::from(part.starts_with('-')), None));
+                moves.push(None);
             } else if let Some(value) = part.strip_prefix('T') {
                 let elapsed = value.parse::<u64>().map_err(|_| fail("開始局面の消費時間が不正です"))?;
-                if let Some(last) = moves.last_mut() { last.1 = Some(elapsed); }
+                if let Some(last) = moves.last_mut() { *last = Some(elapsed); }
             }
         }
     }
-    let mut clocks = [total; 2];
+    // Position contains the prescribed opening, which precedes START and has
+    // not used either player's clock. Its T fields describe that history only.
+    let clocks = [total; 2];
     let mut frames = vec![(clocks, None)];
-    for (side, elapsed) in moves {
-        clocks[side] = clocks[side].saturating_add(increment).saturating_sub(elapsed.unwrap_or(0));
+    for elapsed in moves {
         frames.push((clocks, elapsed));
     }
     Ok(frames)
@@ -764,13 +769,13 @@ async fn play(
                 if line=="END Position" {
                     in_position=false;have_position=true;
                     let (initial,tokens,_)=rshogi_csa::parse_csa(&position_lines.join("\n")).map_err(|e|fail(format!("Invalid CSA Position: {e}")))?;
-                    initial_sfen=position_initial_sfen(&position_lines,&initial)?;pos=initial;moves.clear();opening_frames.clear();
+                    initial_sfen=position_initial_sfen(&position_lines,&initial)?;pos=initial;pos.ply=initial_sfen.split_whitespace().last().and_then(|v|v.parse().ok()).ok_or_else(||fail("開始局面の手数が不正です"))?;moves.clear();opening_frames.clear();
                     if show_board && app_mode() {opening_frames.push(serde_json::json!({"sfen":initial_sfen,"ply":display_ply(&initial_sfen,0)}));}
                     for token in tokens {let usi=rshogi_csa::csa_move_to_usi(&token,&pos).map_err(|e|fail(e.to_string()))?;pos.apply_csa_move(&token).map_err(|e|fail(e.to_string()))?;moves.push(usi);if show_board && app_mode() {opening_frames.push(serde_json::json!({"sfen":pos.to_sfen(),"ply":display_ply(&initial_sfen,moves.len()),"move":moves.last()}));}}
                     continue;
                 }
                 if in_position {position_lines.push(line);continue;}
-                if line=="END Game_Summary" {if inc>0&&byo>0{return Err(io::Error::new(io::ErrorKind::InvalidInput,"秒読みと時間加算を併用する対局条件には対応していません。"));}if !logged_in||!summary_open||!committed||summary_complete||!have_side||!have_total||!have_position{return Err(io::Error::new(io::ErrorKind::InvalidInput,"対局情報が不足または不正なため、開始できません。"));}let opening=opening_clocks(&position_lines,total,inc)?;if opening.len()!=moves.len()+1{return Err(fail("開始局面の指し手と消費時間を読み取れません"));}clocks=opening.last().unwrap().0;for (frame,(clock,elapsed)) in opening_frames.iter_mut().zip(opening){frame["clocks"]=serde_json::json!(clock);frame["elapsed"]=serde_json::json!(elapsed);}if app_mode() && MATCH_GATE.load(std::sync::atomic::Ordering::Relaxed) {
+                if line=="END Game_Summary" {if inc>0&&byo>0{return Err(io::Error::new(io::ErrorKind::InvalidInput,"秒読みと時間加算を併用する対局条件には対応していません。"));}if !logged_in||!summary_open||!committed||summary_complete||!have_side||!have_total||!have_position{return Err(io::Error::new(io::ErrorKind::InvalidInput,"対局情報が不足または不正なため、開始できません。"));}let opening=opening_clocks(&position_lines,total)?;if opening.len()!=moves.len()+1{return Err(fail("開始局面の指し手と消費時間を読み取れません"));}clocks=opening.last().unwrap().0;for (frame,(clock,elapsed)) in opening_frames.iter_mut().zip(opening){frame["clocks"]=serde_json::json!(clock);frame["elapsed"]=serde_json::json!(elapsed);}if app_mode() && MATCH_GATE.load(std::sync::atomic::Ordering::Relaxed) {
                     app_event(serde_json::json!({"event":"match_found","game_id":game_id,"black":black,"white":white,"side":if side=='+' {"black"}else{"white"}}));
                     let replies=MATCH_REPLIES.get().ok_or_else(||fail("マッチングの確認に失敗しました"))?;
                     match tokio::time::timeout(Duration::from_secs(10), replies.lock().await.recv()).await { Ok(Some(()))=>{}, _=>return Err(fail("マッチングの確認がタイムアウトしました")) }
