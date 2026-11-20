@@ -486,6 +486,7 @@ pub async fn run_with_control(
         if let Some(s) = &status {
             s("connecting");
         }
+        let mut game_started = false;
         let result = play(
             &mut engine,
             &host,
@@ -495,6 +496,7 @@ pub async fn run_with_control(
             drain.as_ref(),
             record_dir.as_deref(),
             ponder,
+            &mut game_started,
         )
         .await;
         if let Err(ref e) = result {
@@ -511,6 +513,9 @@ pub async fn run_with_control(
             completed_games += 1;
         }
         if result.as_ref().is_ok_and(|done| matches!(done, PlayOutcome::Aborted)) { restart_after_abort=true; break; }
+        if result.is_err() && game_started && !once && !drain.as_ref().is_some_and(|d| *d.borrow()) {
+            restart_after_abort=true; break;
+        }
         if once || drain.as_ref().is_some_and(|d| *d.borrow()) || game_limit.is_some_and(|limit| completed_games >= limit) {
             break;
         }
@@ -525,10 +530,12 @@ pub async fn run_with_control(
             return Err(fail("engine exited"));
         }
     }
-    engine.send("quit").await?;
+    if let Err(e) = engine.send("quit").await {
+        if !restart_after_abort { return Err(e); }
+    }
     let _ = tokio::time::timeout(Duration::from_secs(2), engine.child.wait()).await;
     if restart_after_abort && !once && !drain.as_ref().is_some_and(|d| *d.borrow()) && !game_limit.is_some_and(|limit| completed_games >= limit) {
-        console_progress(status.as_ref(), "中断対局のためエンジンを再起動します...");
+        console_progress(status.as_ref(), "中断した対局のためエンジンを再起動します...");
         continue 'engine;
     }
     break 'engine;
@@ -661,6 +668,26 @@ fn position_initial_sfen(lines: &[String], initial: &rshogi_csa::Position) -> io
 fn display_ply(initial_sfen: &str, moves: usize) -> u64 {
     initial_sfen.split_whitespace().last().and_then(|v| v.parse::<u64>().ok()).unwrap_or(1).saturating_sub(1).saturating_add(moves as u64)
 }
+fn opening_clocks(lines: &[String], total: u64, increment: u64) -> io::Result<Vec<([u64; 2], Option<u64>)>> {
+    let mut moves: Vec<(usize, Option<u64>)> = Vec::new();
+    for line in lines {
+        for part in line.split(',') {
+            if (part.starts_with('+') || part.starts_with('-')) && part.len() >= 7 {
+                moves.push((usize::from(part.starts_with('-')), None));
+            } else if let Some(value) = part.strip_prefix('T') {
+                let elapsed = value.parse::<u64>().map_err(|_| fail("開始局面の消費時間が不正です"))?;
+                if let Some(last) = moves.last_mut() { last.1 = Some(elapsed); }
+            }
+        }
+    }
+    let mut clocks = [total; 2];
+    let mut frames = vec![(clocks, None)];
+    for (side, elapsed) in moves {
+        clocks[side] = clocks[side].saturating_add(increment).saturating_sub(elapsed.unwrap_or(0));
+        frames.push((clocks, elapsed));
+    }
+    Ok(frames)
+}
 #[derive(Debug)]
 enum PlayOutcome { Completed, Drained, Aborted }
 
@@ -673,6 +700,7 @@ async fn play(
     drain: Option<&tokio::sync::watch::Receiver<bool>>,
     record_dir: Option<&std::path::Path>,
     ponder_enabled: bool,
+    started: &mut bool,
 ) -> io::Result<PlayOutcome> {
     let socket = tokio::time::timeout(Duration::from_secs(10), TcpStream::connect(host))
         .await
@@ -742,13 +770,13 @@ async fn play(
                     continue;
                 }
                 if in_position {position_lines.push(line);continue;}
-                if line=="END Game_Summary" {if inc>0&&byo>0{return Err(io::Error::new(io::ErrorKind::InvalidInput,"秒読みと時間加算を併用する対局条件には対応していません。"));}if !logged_in||!summary_open||!committed||summary_complete||!have_side||!have_total||!have_position{return Err(io::Error::new(io::ErrorKind::InvalidInput,"対局情報が不足または不正なため、開始できません。"));}clocks=[total;2];if app_mode() && MATCH_GATE.load(std::sync::atomic::Ordering::Relaxed) {
+                if line=="END Game_Summary" {if inc>0&&byo>0{return Err(io::Error::new(io::ErrorKind::InvalidInput,"秒読みと時間加算を併用する対局条件には対応していません。"));}if !logged_in||!summary_open||!committed||summary_complete||!have_side||!have_total||!have_position{return Err(io::Error::new(io::ErrorKind::InvalidInput,"対局情報が不足または不正なため、開始できません。"));}let opening=opening_clocks(&position_lines,total,inc)?;if opening.len()!=moves.len()+1{return Err(fail("開始局面の指し手と消費時間を読み取れません"));}clocks=opening.last().unwrap().0;for (frame,(clock,elapsed)) in opening_frames.iter_mut().zip(opening){frame["clocks"]=serde_json::json!(clock);frame["elapsed"]=serde_json::json!(elapsed);}if app_mode() && MATCH_GATE.load(std::sync::atomic::Ordering::Relaxed) {
                     app_event(serde_json::json!({"event":"match_found","game_id":game_id,"black":black,"white":white,"side":if side=='+' {"black"}else{"white"}}));
                     let replies=MATCH_REPLIES.get().ok_or_else(||fail("マッチングの確認に失敗しました"))?;
                     match tokio::time::timeout(Duration::from_secs(10), replies.lock().await.recv()).await { Ok(Some(()))=>{}, _=>return Err(fail("マッチングの確認がタイムアウトしました")) }
                 }write.write_all(b"AGREE\n").await?;summary_open=false;summary_complete=true;prestart_timeout.as_mut().reset(tokio::time::Instant::now()+Duration::from_secs(30));console_progress(status,"対局条件を受け付けました。開始を待っています...");}
                 if line.starts_with("START:") {
-                    if !summary_complete||game_started{return Err(io::Error::new(io::ErrorKind::InvalidInput,"対局開始の受信順序が不正です。"));}game_started=true;
+                    if !summary_complete||game_started{return Err(io::Error::new(io::ErrorKind::InvalidInput,"対局開始の受信順序が不正です。"));}game_started=true;*started=true;
                     if game_id.is_empty() {game_id=line.trim_start_matches("START:").to_owned();}
                     if let Some(dir)=record_dir {match CsaRecord::create(dir,&game_id,&black,&white,&position_lines) {Ok(r)=>record=Some(r),Err(e)=>report_record_error(None,&format!("棋譜を保存できません: {e}"))}}
                     if show_board {if app_mode(){app_event(serde_json::json!({"event":"game_started","side":if side=='+' {"black"}else{"white"},"game_id":game_id,"board":format_board(&pos),"sfen":pos.to_sfen(),"ply":display_ply(&initial_sfen,moves.len()),"frames":opening_frames,"black":black,"white":white,"clocks":clocks,"increment":inc,"byoyomi":byo}));}else{println!("対局開始（{}）\n{}",if side=='+' {"先手"} else {"後手"},format_board(&pos));}}
