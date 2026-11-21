@@ -34,7 +34,7 @@ for line in sys.stdin:
   out,err=p.communicate(timeout=10);assert p.returncode==0,(out,err)
   events=[json.loads(line) for line in out.splitlines()];names=[event['event'] for event in events]
   assert 'record' in names and 'game_started' in names and 'game_finished' in names and 'exited' in names,names
-  assert names.index('record')<names.index('game_started')<names.index('game_finished')<names.index('exited'),names
+  assert names.index('record')<names.index('game_finished')<names.index('exited') and names.index('game_started')<names.index('game_finished'),names
  finally:
   listener.close()
   if p.poll() is None:p.kill();p.wait()

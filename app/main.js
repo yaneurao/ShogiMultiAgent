@@ -1,6 +1,7 @@
 'use strict';
 const {app,BrowserWindow,ipcMain,dialog,safeStorage,shell,clipboard} = require('electron');
-const {spawn} = require('node:child_process');
+const {spawn,execFile} = require('node:child_process');
+const {promisify}=require('node:util');
 const {gameUrl}=require('./game-url');
 const fs=require('node:fs/promises'),path=require('node:path'),crypto=require('node:crypto'),readline=require('node:readline');
 app.setName('ShogiMultiAgent');
@@ -22,7 +23,7 @@ function mergeGameData(previous,current){
  const other=base===previous?current:previous;
  const byPosition=new Map(other.frames.map(frame=>[`${frame.ply}\0${frame.sfen}`,frame]));
  const frames=base.frames.map(frame=>{const supplement=byPosition.get(`${frame.ply}\0${frame.sfen}`);if(!supplement)return frame;return {...frame,evaluation:frame.evaluation??supplement.evaluation,pv:frame.pv?.length?frame.pv:supplement.pv,clocks:frame.clocks??supplement.clocks,elapsed:frame.elapsed??supplement.elapsed};});
- return {...base,frames};
+ return {...base,finalClocks:base.finalClocks??other.finalClocks,frames};
 }
 function saveHistory(s,result,reason){if(!s.game)return;const g=structuredClone(s.game),recordPath=g.recordPath||null;const key=historyKey(s.host,s.game_id,g.black,g.white);const selfSides=[g.side];const other=[...sessions.values()].find(x=>x!==s&&x.host===s.host&&x.game_id===s.game_id&&x.game?.black===g.black&&x.game?.white===g.white);if(other?.game?.side&&!selfSides.includes(other.game.side))selfSides.push(other.game.side);if(other?.game){other.game.selfPlay=true;g.selfPlay=true;}if(g.selfPlay)selfSides.push(g.side==='black'?'white':'black');
  const checkpoint=s.checkpoint?.generation===g.generation?s.checkpoint:null;
@@ -34,18 +35,19 @@ function queueCheckpoint(s,kind){
  if(!s.game)return;
  if(kind==='start')s.checkpoint={generation:s.game.generation,path:path.join(pendingDir(),`${s.id}-${s.game.generation}.ndjson`),failed:false,writes:Promise.resolve()};
  const checkpoint=s.checkpoint;if(!checkpoint||checkpoint.generation!==s.game.generation)return;
- const data=kind==='start'?{type:'start',host:s.host,game_id:s.game_id,game:structuredClone(s.game)}:kind==='record_error'?{type:'record_error',path:s.game.recordPath||null,message:s.game.recordError}:kind==='finish'?{type:'finish',result:s.result,reason:s.finishReason||null}:{type:'move',frame:structuredClone(s.game.frames.at(-1))};
+ const data=kind==='start'?{type:'start',host:s.host,game_id:s.game_id,game:structuredClone(s.game)}:kind==='record'?{type:'record',path:s.game.recordPath}:kind==='record_error'?{type:'record_error',path:s.game.recordPath||null,message:s.game.recordError}:kind==='finish'?{type:'finish',result:s.result,reason:s.finishReason||null,finalClocks:s.game.finalClocks||null}:{type:'move',frame:structuredClone(s.game.frames.at(-1))};
  const line=JSON.stringify(data)+'\n';
  checkpoint.writes=checkpoint.writes.then(async()=>{await pendingScanReady;if(checkpoint.failed)return;if(kind==='start'){await fs.mkdir(pendingDir(),{recursive:true});const temp=checkpoint.path+'.tmp';await fs.writeFile(temp,line);await fs.rename(temp,checkpoint.path);}else await fs.appendFile(checkpoint.path,line);}).catch(e=>{checkpoint.failed=true;s.error='対局中の復旧情報を保存できません: '+e.message;s.log.push(s.error);notify();});
 }
 async function readPendingGames(){
  let names;try{names=await fs.readdir(pendingDir());}catch(e){if(e.code==='ENOENT')return [];throw e;}
- const recovered=[];for(const name of names){if(!/^[a-f0-9-]+-[0-9]+\.ndjson$/.test(name))continue;const checkpoint=path.join(pendingDir(),name);try{const data=await fs.readFile(checkpoint,'utf8'),lines=data.split('\n'),tail=lines.pop();let start=null,finish=null,damaged=!!tail;for(const line of lines){try{const event=JSON.parse(line);if(!start&&event.type==='start'&&typeof event.host==='string'&&typeof event.game_id==='string'&&['black','white'].includes(event.game?.side)&&event.game?.frames?.length)start=event;else if(start&&!finish&&event.type==='move'&&event.frame?.sfen)start.game.frames.push(event.frame);else if(start&&!finish&&event.type==='record_error'&&typeof event.message==='string'){start.game.recordError=event.message;if(typeof event.path==='string')start.game.recordErrors={...(start.game.recordErrors||{}),[event.path]:event.message};}else if(start&&!finish&&event.type==='finish'&&['#WIN','#LOSE','#DRAW','#CENSORED'].includes(event.result)){finish=event;}else{damaged=true;break;}}catch{damaged=true;break;}}if(!start)throw Error('開始局面がありません');if(damaged)historyLoadErrors++;if(!finish)markIncompleteRecord(start.game);recovered.push({id:name,host:start.host,game_id:start.game_id,game:start.game,finish,checkpoint:{generation:start.game.generation,path:checkpoint},log:[]});}catch(e){historyLoadErrors++;console.error('対局の復旧情報を読み込めません:',name,e.message);}}
+ const recovered=[];for(const name of names){if(!/^[a-f0-9-]+-[0-9]+\.ndjson$/.test(name))continue;const checkpoint=path.join(pendingDir(),name);try{const data=await fs.readFile(checkpoint,'utf8'),lines=data.split('\n'),tail=lines.pop();let start=null,finish=null,damaged=!!tail;for(const line of lines){try{const event=JSON.parse(line);if(!start&&event.type==='start'&&typeof event.host==='string'&&typeof event.game_id==='string'&&['black','white'].includes(event.game?.side)&&event.game?.frames?.length)start=event;else if(start&&!finish&&event.type==='move'&&event.frame?.sfen)start.game.frames.push(event.frame);else if(start&&!finish&&event.type==='record'&&typeof event.path==='string')start.game.recordPath=event.path;else if(start&&!finish&&event.type==='record_error'&&typeof event.message==='string'){start.game.recordError=event.message;if(typeof event.path==='string')start.game.recordErrors={...(start.game.recordErrors||{}),[event.path]:event.message};}else if(start&&!finish&&event.type==='finish'&&['#WIN','#LOSE','#DRAW','#CENSORED'].includes(event.result)){finish=event;if(Array.isArray(event.finalClocks)&&event.finalClocks.length===2&&event.finalClocks.every(Number.isFinite))start.game.finalClocks=event.finalClocks;}else{damaged=true;break;}}catch{damaged=true;break;}}if(!start)throw Error('開始局面がありません');if(damaged)historyLoadErrors++;if(!finish)markIncompleteRecord(start.game);recovered.push({id:name,host:start.host,game_id:start.game_id,game:start.game,finish,checkpoint:{generation:start.game.generation,path:checkpoint},log:[]});}catch(e){historyLoadErrors++;console.error('対局の復旧情報を読み込めません:',name,e.message);}}
  return recovered;
 }
 function finishQuit(){Promise.allSettled([historyWrites,profileWrites]).then(()=>app.quit());}
 function markIncompleteRecord(game){if(!game?.recordPath||game.recordError)return;const message='対局が中断したため、CSA棋譜が最後まで保存されていません。';game.recordError=message;game.recordErrors={...(game.recordErrors||{}),[game.recordPath]:message};}
 function saveInterrupted(s){s.gameInProgress=false;if(s.game&&!s.game.recorded){markIncompleteRecord(s.game);s.game.recorded=true;saveHistory(s,'#UNKNOWN');}}
+function freezeGameClock(game,e){const frame=game?.frames?.at(-1);if(!frame?.clocks||!frame.received)return;const clocks=frame.clocks.slice(),turn=frame.sfen?.split(' ')[1]==='w'?1:0;const elapsed=Number.isFinite(e.terminal_elapsed_ms)?Math.max(0,e.terminal_elapsed_ms)/1000:Math.max(0,Date.now()-frame.received)/1000;clocks[turn]=e.reason==='#TIME_UP'?0:Math.max(0,clocks[turn]-elapsed);game.finalClocks=clocks;game.clockStopped=true;}
 const historyKey=(host,id,black,white)=>crypto.createHash('sha256').update(JSON.stringify([host,id,black,white])).digest('hex');
 function recordCandidates(entry){return [...new Set([entry?.recordPath,...(entry?.recordPaths||[])].filter(Boolean))].filter(p=>!entry.recordErrors?.[p]&&!(p===entry.recordPath&&entry.recordError));}
 function removeDeletedRecordPaths(entry,removed){
@@ -66,6 +68,30 @@ async function reconcileDeletedRecordPaths(removed){
  return problems;
 }
 const recordsList=()=>[...records.values()].sort((a,b)=>b.startedAt-a.startedAt).map(({game,...entry})=>entry);
+const inspectRecord=promisify(execFile);
+let completedScanPending=false;
+function reconcileCompletedRecords(){
+ if(completedScanPending||historyLoading||historyRecoveryPending)return;completedScanPending=true;
+ const operation=historyWrites.then(async()=>{
+  await historyReady;
+  for(const [id,entry] of records){
+   const p=entry.recordPath;if(entry.result!=='#UNKNOWN'||!p||!entry.recordError?.includes('対局が中断したため'))continue;
+   if([...sessions.values()].some(s=>s.gameInProgress&&s.game&&historyKey(s.host,s.game_id,s.game.black,s.game.white)===id))continue;
+   try{
+    const stat=await fs.stat(p);if(stat.size>16*1024*1024)continue;const text=await fs.readFile(p,'utf8');if(!/\n'\$END_TIME:[^\n]*\n?$/.test(text))continue;
+    const {stdout}=await inspectRecord(agentPath(),['--inspect-record',p],{timeout:10000,maxBuffer:16*1024*1024,windowsHide:true});const parsed=JSON.parse(stdout);
+    const target=path.join(historyDir(),id+'.json'),full=JSON.parse(await fs.readFile(target,'utf8'));
+    if(historyKey(entry.host,parsed.event,parsed.black,parsed.white)!==id)continue;
+    if(parsed.black!==entry.black||parsed.white!==entry.white||!parsed.frames?.length||!full.game?.frames?.every((frame,i)=>parsed.frames[i]?.sfen===frame.sfen))continue;
+    const originalFrames=full.game.frames,increments=full.game.increments||(Number.isFinite(full.game.increment)?[full.game.increment,full.game.increment]:null);let clocks=originalFrames.at(-1)?.clocks?.slice();
+    if(clocks&&Array.isArray(increments)&&increments.length===2&&increments.every(Number.isFinite)){for(let i=originalFrames.length;i<parsed.frames.length;i++){const frame=parsed.frames[i];if(!Number.isFinite(frame.elapsed))break;const mover=frame.sfen?.split(' ')[1]==='w'?0:1;clocks[mover]=Math.max(0,clocks[mover]+increments[mover]-frame.elapsed);frame.clocks=clocks.slice();}}
+    full.game=mergeGameData(full.game,{...full.game,frames:parsed.frames});full.game.recordError=null;if(full.game.recordErrors)delete full.game.recordErrors[p];
+    full.ply=full.game.frames.at(-1)?.ply??full.ply;full.result=parsed.result;full.reason=parsed.reason||null;full.recordError=null;if(full.recordErrors)delete full.recordErrors[p];
+    const temp=target+'.tmp';await fs.writeFile(temp,JSON.stringify(full));await fs.rename(temp,target);const {game:_,...metadata}=full;records.set(id,metadata);if(windowRef&&!windowRef.isDestroyed())windowRef.webContents.send('records-changed');
+   }catch(e){console.error('完了した棋譜を復旧できません:',p,e.message);}
+  }
+ });historyWrites=operation.catch(()=>{});operation.finally(()=>{completedScanPending=false;}).catch(()=>{});
+}
 async function loadHistory(){try{await fs.mkdir(historyDir(),{recursive:true});const recovered=await readPendingGames();historyRecoveryPending=recovered.length>0;releasePendingScan();const names=(await fs.readdir(historyDir())).filter(name=>/^[a-f0-9]{64}\.json$/.test(name));for(let offset=0;offset<names.length;offset+=8){await Promise.all(names.slice(offset,offset+8).map(async name=>{try{const entry=JSON.parse(await fs.readFile(path.join(historyDir(),name),'utf8'));if(entry.id===name.slice(0,-5)&&entry.game?.frames?.length&&!records.has(entry.id)){const {game:_,...metadata}=entry;records.set(entry.id,metadata);}else if(entry.id!==name.slice(0,-5)||!entry.game?.frames?.length){historyLoadErrors++;}}catch(e){historyLoadErrors++;console.error('対局履歴の読み込み失敗:',name,e.message);}}));}return recovered;}catch(e){historyLoadErrors++;dialog.showErrorBox('対局履歴を読み込めません',e.message);}finally{releasePendingScan();historyLoading=false;notify();if(windowRef&&!windowRef.isDestroyed())windowRef.webContents.send('records-changed');}}
 
 
@@ -110,20 +136,21 @@ function confirmMatch(s,e){
 function eventFor(s,e){
  if(e.event==='state') {if(e.state==='reconnecting'){s.matchCandidate=null;s.search={mode:'waiting'};saveInterrupted(s);if(e.message){s.error=e.message;s.log.push('再接続中: '+e.message);}}if(!s.stopRequested)s.status=e.state;if(e.state==='waiting'){s.matchCandidate=null;s.search={mode:'waiting'};s.error=null;s.ply=null;s.score=null;s.pv=[];s.opponent=null;}}
  if(e.event==='match_found')confirmMatch(s,e);
- if(e.event==='record')s.pendingRecordPath=e.path;
- if(e.event==='record_error'){const message=e.message||'棋譜を保存できません。';s.error=message;s.log.push(message);if(s.gameInProgress&&s.game){if(e.path)s.game.recordErrors={...(s.game.recordErrors||{}),[e.path]:message};s.game.recordError=message;}else{s.pendingRecordError=message;if(e.path)s.pendingRecordPath=e.path;}}
- if(e.event==='game_started'){s.searchHistory=new Map();s.search={mode:'waiting'};s.gameInProgress=true;s.game={startedAt:Date.now(),label:s.label,side:e.side,recordPath:s.pendingRecordPath||null,recordError:s.pendingRecordError||null,recordErrors:s.pendingRecordError&&s.pendingRecordPath?{[s.pendingRecordPath]:s.pendingRecordError}:{},frames:(e.frames?.length?e.frames:[{sfen:e.sfen,ply:e.ply}]).map(f=>({...f})),black:e.black,white:e.white,byoyomi:e.byoyomi,increment:e.increment,generation:(s.gameGeneration=(s.gameGeneration||0)+1),revision:s.gameRevision||0};Object.assign(s.game.frames.at(-1),{clocks:e.clocks,received:Date.now()});s.pending=null;s.pendingRecordPath=null;s.pendingRecordError=null;for(const other of sessions.values())if(other!==s&&other.host===s.host&&other.game_id===e.game_id&&other.game?.black===e.black&&other.game?.white===e.white&&other.game?.side!==e.side){other.game.selfPlay=true;s.game.selfPlay=true;}if(!s.stopRequested)s.status='playing';s.side=e.side;s.opponent=(e.side==='black'?e.white:e.black)||null;s.game_id=e.game_id;s.ply=e.ply;s.board=e.board;s.score=null;s.pv=[];}
+ if(e.event==='record'){if(s.gameInProgress&&s.game){s.game.recordPath=e.path;if(s.game.recordError)s.game.recordErrors={...(s.game.recordErrors||{}),[e.path]:s.game.recordError};queueCheckpoint(s,'record');}else s.pendingRecordPath=e.path;}
+ if(e.event==='record_error'){const message=e.message||'棋譜を保存できません。';s.error=message;s.log.push(message);if(s.gameInProgress&&s.game){if(e.path){s.game.recordPath||=e.path;s.game.recordErrors={...(s.game.recordErrors||{}),[e.path]:message};}s.game.recordError=message;}else{s.pendingRecordError=message;if(e.path)s.pendingRecordPath=e.path;}}
+ if(e.event==='game_started'){s.searchHistory=new Map();s.search={mode:'waiting'};s.gameInProgress=true;s.game={startedAt:Date.now(),label:s.label,side:e.side,recordPath:s.pendingRecordPath||null,recordError:s.pendingRecordError||null,recordErrors:s.pendingRecordError&&s.pendingRecordPath?{[s.pendingRecordPath]:s.pendingRecordError}:{},frames:(e.frames?.length?e.frames:[{sfen:e.sfen,ply:e.ply}]).map(f=>({...f})),black:e.black,white:e.white,byoyomi:e.byoyomi,increment:e.increment,increments:e.increments,generation:(s.gameGeneration=(s.gameGeneration||0)+1),revision:s.gameRevision||0};Object.assign(s.game.frames.at(-1),{clocks:e.clocks,received:Date.now()});s.pending=null;s.pendingRecordPath=null;s.pendingRecordError=null;for(const other of sessions.values())if(other!==s&&other.host===s.host&&other.game_id===e.game_id&&other.game?.black===e.black&&other.game?.white===e.white&&other.game?.side!==e.side){other.game.selfPlay=true;s.game.selfPlay=true;}if(!s.stopRequested)s.status='playing';s.side=e.side;s.opponent=(e.side==='black'?e.white:e.black)||null;s.game_id=e.game_id;s.ply=e.ply;s.board=e.board;s.score=null;s.pv=[];}
  if(e.event==='move'){if(s.search?.mode==='pondering'&&s.search.sfen&&s.search.sfen!==e.sfen)s.search={mode:s.search.mode,rows:[]};if(s.game){const a=s.pending?.move===e.move?s.pending:null;s.game.frames.push({sfen:e.sfen,ply:e.ply,move:e.move,clocks:e.clocks,elapsed:e.elapsed,evaluation:e.evaluation??a?.evaluation,pv:e.pv?.length?e.pv:a?.pv,received:Date.now()});s.pending=null;}s.ply=e.ply;s.board=e.board;s.move=e.move;}
  if(e.event==='search_state'){const newSearch=e.mode==='pondering'||(e.mode==='thinking'&&s.search?.mode!=='pondering');s.search={...s.search,...(newSearch?{nodes:null,nps:null,metricsForNewSearch:true}:{}),mode:e.mode};}
  if(e.event==='search_metrics'){s.search={...s.search,nodes:e.nodes??s.search?.nodes,nps:e.nps??s.search?.nps};if(!s.search.metricsForNewSearch&&s.search?.sfen&&s.searchHistory?.has(s.search.sfen))s.searchHistory.set(s.search.sfen,s.search);}
  if(e.event==='analysis_update'){const rows=s.search?.sfen===e.sfen?(s.search.rows||[]):[];s.search={...s.search,metricsForNewSearch:false,mode:e.mode||'thinking',sfen:e.sfen,rows:[{depth:e.depth,seldepth:e.seldepth,time_ms:e.time_ms,score:e.score,bound:e.bound,pv:(e.pv||[]).slice(0,4),sfen:e.sfen},...rows].slice(0,100)};if(e.sfen&&s.searchHistory)s.searchHistory.set(e.sfen,s.search);if(e.mode!=='pondering'&&e.primary!==false&&e.score!=null){s.score=e.score;s.pv=e.pv||[];}}
  if(e.event==='analysis'){s.pending=e;s.score=e.score;s.pv=e.pv||[];s.move=e.move;}
- if(e.event==='game_finished'){s.search={mode:'finished'};s.gameInProgress=false;if(!s.stopRequested)s.status='finished';s.result=e.result;s.finishReason=e.reason;if(s.game&&!s.game.recorded){queueCheckpoint(s,'finish');s.game.recorded=true;saveHistory(s,e.result,e.reason);}}
+ if(e.event==='game_ending'&&s.game)freezeGameClock(s.game,e);
+ if(e.event==='game_finished'){s.search={mode:'finished'};s.gameInProgress=false;if(!s.stopRequested)s.status='finished';s.result=e.result;s.finishReason=e.reason;if(s.game&&!s.game.recorded){if(!s.game.clockStopped)freezeGameClock(s.game,e);queueCheckpoint(s,'finish');s.game.recorded=true;saveHistory(s,e.result,e.reason);}}
  if(e.event==='stopping'&&!s.resumeRequested){s.stopRequested=true;s.status='stopping';}if(e.event==='resumed'){s.resumeRequested=false;s.stopRequested=false;s.status=s.gameInProgress?'playing':'waiting';}
- if(e.event==='log'||e.event==='error'||e.event==='record'||e.event==='stopping'||e.event==='resumed')s.log.push(e.message||e.path||'');
+ if(e.event==='log'||e.event==='engine_log'||e.event==='error'||e.event==='record'||e.event==='stopping'||e.event==='resumed')s.log.push(e.message||e.path||'');
  if(e.event==='error'){s.status='failed';s.error=e.message;}
  if(s.game&&(['game_started','move'].includes(e.event)||(e.event==='record_error'&&s.gameInProgress)))queueCheckpoint(s,e.event==='game_started'?'start':e.event==='record_error'?'record_error':'move');
- if(s.game&&['game_started','move','game_finished'].includes(e.event)){s.game.revision=(s.gameRevision=(s.gameRevision||0)+1);if(windowRef&&!windowRef.isDestroyed())windowRef.webContents.send('game-event',s.id,e.event,s.game.revision,e.event==='move'?s.game.frames.at(-1):null);}if(s.log.length>500)s.log.splice(0,s.log.length-500);notify();
+ if(s.game&&['game_started','move','game_ending','game_finished'].includes(e.event)){s.game.revision=(s.gameRevision=(s.gameRevision||0)+1);if(windowRef&&!windowRef.isDestroyed())windowRef.webContents.send('game-event',s.id,e.event,s.game.revision,e.event==='move'?s.game.frames.at(-1):['game_ending','game_finished'].includes(e.event)?{finalClocks:s.game.finalClocks,clockStopped:s.game.clockStopped}:null);}if(s.log.length>500)s.log.splice(0,s.log.length-500);notify();
 }
 function agentPath(){return app.isPackaged?path.join(process.resourcesPath,'app','agent',process.platform==='win32'?'usi-agent3.exe':'usi-agent'):path.join(__dirname,'..','agent',process.platform==='win32'?'usi-agent3.exe':'usi-agent');}
 async function start(id){
@@ -217,6 +244,7 @@ app.whenReady().then(async()=>{
  ipcMain.handle('force',(_e,id)=>{forceSession(sessions.get(id));});
  ipcMain.handle('remove-session',(_e,id)=>{const s=sessions.get(id);if(s&&!s.child){sessions.delete(id);notify();}});
  historyReady=loadHistory().then(recovered=>{for(const session of recovered||[])saveHistory(session,session.finish?.result||'#UNKNOWN',session.finish?session.finish.reason:'#ABNORMAL');if(historyRecoveryPending){const recoveryWrites=historyWrites;recoveryWrites.finally(()=>{historyRecoveryPending=false;notify();});}});
+ const completedScan=setInterval(reconcileCompletedRecords,2000);completedScan.unref();
  ipcMain.handle('close-gracefully',()=>{closing=true;for(const s of sessions.values())if(s.child){s.child.stdin.write('q\n');s.stopRequested=true;s.status='stopping';}notify();if(!startingProfiles.size&&![...sessions.values()].some(s=>s.child))finishQuit();});
 });
 app.on('window-all-closed',()=>{if(!startingProfiles.size&&![...sessions.values()].some(s=>s.child))finishQuit();});

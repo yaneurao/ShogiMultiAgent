@@ -2,7 +2,7 @@
 //! Participant-side USI engine ↔ CSA bridge. One process represents one connection.
 use std::{io, process::Stdio, time::Duration};
 use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     net::TcpStream,
     process::{Child, ChildStdin, Command},
     sync::mpsc,
@@ -185,7 +185,7 @@ fn app_mode() -> bool { APP_MODE.load(std::sync::atomic::Ordering::Relaxed) }
 fn app_event(value: serde_json::Value) {
     if !app_mode()||APP_OUTPUT_FAILED.load(std::sync::atomic::Ordering::Relaxed){return;}
     let Some(output)=APP_OUTPUT.get() else {return};
-    let telemetry=matches!(value["event"].as_str(),Some("analysis_update" | "search_metrics"));
+    let telemetry=matches!(value["event"].as_str(),Some("analysis_update" | "search_metrics" | "engine_log"));
     let mut state=output.queue.lock().unwrap_or_else(|e|e.into_inner());
     if state.pending.len()>=512 {
         if let Some(index)=state.pending.iter().position(|(_,is_telemetry)|*is_telemetry){state.pending.remove(index);}
@@ -206,6 +206,7 @@ fn console_progress(status: Option<&StatusCallback>, message: &str) {
 pub async fn run_cli(args: impl Iterator<Item = String>) -> io::Result<()> {
     use std::io::BufRead;
     let mut arguments: Vec<String> = args.collect();
+    if arguments.len()==2 && arguments[0]=="--inspect-record" {return inspect_record(&arguments[1]);}
     if arguments == ["--app-mode"] {
         APP_MODE.store(true, std::sync::atomic::Ordering::Relaxed);
         let mut line = String::new();
@@ -262,6 +263,21 @@ pub async fn run_cli(args: impl Iterator<Item = String>) -> io::Result<()> {
     flush_app_output();
     drop(quit);
     result
+}
+fn inspect_record(path:&str)->io::Result<()> {
+    let data=std::fs::read(path)?;if data.len()>16*1024*1024{return Err(fail("棋譜が大きすぎます"));}
+    let text=std::str::from_utf8(&data).map_err(|_|fail("棋譜の文字コードが不正です"))?;
+    let lines:Vec<String>=text.lines().map(str::to_owned).collect();
+    if !lines.last().is_some_and(|l|l.starts_with("'$END_TIME:")){return Err(fail("棋譜はまだ完了していません"));}
+    let result=lines.iter().filter_map(|l|l.strip_prefix("'#")).filter(|v|["WIN","LOSE","DRAW","CENSORED"].contains(v)).last().ok_or_else(||fail("棋譜に結果がありません"))?;
+    let reason=lines.iter().filter_map(|l|l.strip_prefix("'#")).filter(|v|!["WIN","LOSE","DRAW","CENSORED"].contains(v)).last().map(|v|format!("#{v}"));
+    let event=lines.iter().find_map(|l|l.strip_prefix("$EVENT:")).ok_or_else(||fail("棋譜に対局IDがありません"))?;
+    let (mut pos,moves,info,evals)=rshogi_csa::parse_csa_full_with_evals(text).map_err(|e|fail(e.to_string()))?;
+    let initial=position_initial_sfen(&lines,&pos)?;pos.ply=initial.split_whitespace().last().and_then(|v|v.parse().ok()).ok_or_else(||fail("棋譜の手数が不正です"))?;
+    let mut comments:Vec<Vec<String>>=Vec::new();for line in &lines {let b=line.as_bytes();if b.len()>=7&&matches!(b[0],b'+'|b'-')&&b[1..5].iter().all(u8::is_ascii_digit)&&b[5..7].iter().all(u8::is_ascii_uppercase){comments.push(Vec::new());}else if let Some(value)=line.strip_prefix("'**"){if let Some(last)=comments.last_mut(){*last=value.split_whitespace().skip(1).take(32).map(str::to_owned).collect();}}}
+    let mut frames=vec![serde_json::json!({"sfen":initial,"ply":display_ply(&initial,0)})];let mut n=0usize;
+    for item in moves {if let rshogi_csa::ParsedMove::Normal(m)=item {let mut pv_pos=pos.clone();let mut pv=Vec::new();if let Some(tokens)=comments.get(n){for token in tokens{let Ok(usi)=rshogi_csa::csa_move_to_usi(token,&pv_pos)else{break};if pv_pos.apply_csa_move(token).is_err(){break;}pv.push(usi);}}let usi=rshogi_csa::csa_move_to_usi(&m.mv,&pos).map_err(|e|fail(e.to_string()))?;pos.apply_csa_move(&m.mv).map_err(|e|fail(e.to_string()))?;n+=1;frames.push(serde_json::json!({"sfen":pos.to_sfen(),"ply":display_ply(&initial,n),"move":usi,"elapsed":m.time_sec,"evaluation":evals.get(n-1).copied().flatten(),"pv":pv}));}}
+    println!("{}",serde_json::json!({"event":event,"black":info.black_name,"white":info.white_name,"result":format!("#{result}"),"reason":reason,"frames":frames}));Ok(())
 }
 pub async fn run_with_control(
     args: impl Iterator<Item = String>,
@@ -389,7 +405,7 @@ pub async fn run_with_control(
         .args(engine_args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
+        .stderr(if app_mode(){Stdio::piped()}else{Stdio::inherit()})
         .kill_on_drop(true);
     if let Some(directory) = working_dir {
         command.current_dir(directory);
@@ -413,6 +429,7 @@ pub async fn run_with_control(
     'engine: loop {
     console_progress(status.as_ref(), "エンジンを起動しています...");
     let mut child = command.spawn()?;
+    if let Some(mut stderr)=child.stderr.take(){tokio::spawn(async move {let mut buf=[0u8;4096];while let Ok(n)=stderr.read(&mut buf).await {if n==0{break;}app_event(serde_json::json!({"event":"engine_log","message":String::from_utf8_lossy(&buf[..n]).trim_end()}));}});}
     if let Some(s) = &status {
         s("spawned");
     }
@@ -551,7 +568,7 @@ impl<T> Drop for AbortOnDrop<T> {
 }
 
 fn report_record_error(path: Option<&std::path::Path>, message: &str) {
-    log_stderr(message);
+    if !app_mode() { log_stderr(message); }
     app_event(serde_json::json!({"event":"record_error","path":path.map(|p|p.to_string_lossy().into_owned()),"message":message}));
 }
 struct CsaRecord {
@@ -559,9 +576,10 @@ struct CsaRecord {
     path: std::path::PathBuf,
     failed: bool,
     special_written: bool,
+    enabled: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 impl CsaRecord {
-    fn create(dir: &std::path::Path, id: &str, black: &str, white: &str, position: &[String]) -> io::Result<Self> {
+    fn create(dir: &std::path::Path, id: &str, black: &str, white: &str, position: &[String], enabled: std::sync::Arc<std::sync::atomic::AtomicBool>, shared_path:&std::sync::Mutex<Option<std::path::PathBuf>>) -> io::Result<Self> {
         use std::io::Write;
         let now = chrono::Utc::now().with_timezone(&chrono::FixedOffset::east_opt(9 * 3600).unwrap());
         // Game_ID is supplied by the server. Never allow it to escape the
@@ -577,14 +595,15 @@ impl CsaRecord {
                 Err(e) => Some(Err(e)),
             }
         }).unwrap_or_else(|| Err(fail("棋譜ファイル名を確保できません")))?;
-        if app_mode() { app_event(serde_json::json!({"event":"record","path":path.to_string_lossy()})); } else { println!("棋譜保存: {}", path.display()); }
+        *shared_path.lock().unwrap_or_else(|e|e.into_inner())=Some(path.clone());
+        if enabled.load(std::sync::atomic::Ordering::Acquire) {if app_mode() { app_event(serde_json::json!({"event":"record","path":path.to_string_lossy()})); } else { println!("棋譜保存: {}", path.display()); }}
         let written = (|| -> io::Result<()> {
             writeln!(file, "V2.2\nN+{black}\nN-{white}\n$EVENT:{id}\n$START_TIME:{}", now.format("%Y/%m/%d %H:%M:%S"))?;
             for line in position { writeln!(file, "{line}")?; }
             Ok(())
         })();
-        let failed = if let Err(e) = written { report_record_error(Some(&path), &format!("棋譜を保存できません: {e}")); true } else { false };
-        Ok(Self { file, path, failed, special_written: false })
+        let failed = if let Err(e) = written { if enabled.load(std::sync::atomic::Ordering::Acquire){report_record_error(Some(&path), &format!("棋譜を保存できません: {e}"));} true } else { false };
+        Ok(Self { file, path, failed, special_written: false, enabled })
     }
     fn write_wire(&mut self, line: &str) {
         use std::io::Write;
@@ -606,7 +625,7 @@ impl CsaRecord {
             }
             Ok(())
         })();
-        if let Err(e) = result { self.failed = true; report_record_error(Some(&self.path), &format!("棋譜の書き込みに失敗しました: {e}")); }
+        if let Err(e) = result { self.failed = true; if self.enabled.load(std::sync::atomic::Ordering::Acquire){report_record_error(Some(&self.path), &format!("棋譜の書き込みに失敗しました: {e}"));} }
     }
     fn finish(mut self, reason: &str, verdict: &str, side: char, black: &str, white: &str) {
         use std::io::Write;
@@ -640,9 +659,24 @@ impl CsaRecord {
             writeln!(self.file, "'$END_TIME:{}", now.format("%Y/%m/%d %H:%M:%S"))?;
             self.file.flush()
         })();
-        if let Err(e) = written { report_record_error(Some(&self.path), &format!("棋譜の保存に失敗しました: {e}")); }
+        if let Err(e) = written { if self.enabled.load(std::sync::atomic::Ordering::Acquire){report_record_error(Some(&self.path), &format!("棋譜の保存に失敗しました: {e}"));} }
     }
 }
+enum RecordCommand { Line(String), Finish{reason:String,verdict:String,side:char,black:String,white:String,done:tokio::sync::oneshot::Sender<()>} }
+struct AsyncRecord { tx:std::sync::mpsc::SyncSender<RecordCommand>, enabled:std::sync::Arc<std::sync::atomic::AtomicBool>, path:std::sync::Arc<std::sync::Mutex<Option<std::path::PathBuf>>> }
+impl AsyncRecord {
+ fn start(dir:std::path::PathBuf,id:String,black:String,white:String,position:Vec<String>)->Self {
+  let (tx,rx)=std::sync::mpsc::sync_channel(4096);let enabled=std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));let path=std::sync::Arc::new(std::sync::Mutex::new(None));let flag=enabled.clone();let shared=path.clone();
+  std::thread::spawn(move||{
+   let mut record=match CsaRecord::create(&dir,&id,&black,&white,&position,flag.clone(),&shared){Ok(r)=>Some(r),Err(e)=>{if flag.load(std::sync::atomic::Ordering::Acquire){report_record_error(None,&format!("棋譜を保存できません: {e}"));}None}};
+   while let Ok(cmd)=rx.recv(){if !flag.load(std::sync::atomic::Ordering::Acquire){break;}match cmd{RecordCommand::Line(line)=>{if let Some(r)=record.as_mut(){r.write_wire(&line);}},RecordCommand::Finish{reason,verdict,side,black,white,done}=>{if let Some(r)=record.take(){r.finish(&reason,&verdict,side,&black,&white);}let _=done.send(());break;}}}
+  });Self{tx,enabled,path}
+ }
+ fn fail(&self,message:&str){if self.enabled.swap(false,std::sync::atomic::Ordering::AcqRel){let p=self.path.lock().unwrap_or_else(|e|e.into_inner()).clone();report_record_error(p.as_deref(),message);}}
+ fn write_wire(&self,line:&str){if self.enabled.load(std::sync::atomic::Ordering::Acquire)&&self.tx.try_send(RecordCommand::Line(line.to_owned())).is_err(){self.fail("棋譜の保存が追いつかないため、記録を中断しました。");}}
+ async fn finish(self,reason:&str,verdict:&str,side:char,black:&str,white:&str){if !self.enabled.load(std::sync::atomic::Ordering::Acquire){return;}let (done,wait)=tokio::sync::oneshot::channel();if self.tx.try_send(RecordCommand::Finish{reason:reason.into(),verdict:verdict.into(),side,black:black.into(),white:white.into(),done}).is_err(){self.fail("棋譜の保存が追いつかないため、記録を中断しました。");return;}if !matches!(tokio::time::timeout(Duration::from_secs(2),wait).await,Ok(Ok(()))){self.fail("棋譜の保存が完了しなかったため、記録を確認してください。");}}
+}
+impl Drop for AsyncRecord {fn drop(&mut self){self.enabled.store(false,std::sync::atomic::Ordering::Release);}}
 // The extension is a CSA comment, so ordinary CSA clients can ignore it.
 // It describes the initial board, before any opening moves included in Position.
 fn position_initial_sfen(lines: &[String], initial: &rshogi_csa::Position) -> io::Result<String> {
@@ -743,8 +777,8 @@ async fn play(
     let mut ponder_analysis = Analysis::default();
     let mut ponder_sfen = String::new();
     let result=async {
-        let mut committed=false;let mut logged_in=false;let mut summary_complete=false;let mut summary_open=false;let mut game_started=false;let mut have_side=false;let mut have_position=false;let mut termination_reason=String::new();let mut game_id=String::new();let mut black=String::new();let mut white=String::new();let mut record: Option<CsaRecord>=None;
-        let mut side='+';let mut common_time=RawTime::default();let mut side_time=[RawTime::default();2];let mut time_target=None;let mut inc=[0u64;2];let mut byo=0u64;let mut clocks=[0u64;2];let mut moves=Vec::<String>::new();let mut pos=rshogi_csa::initial_position();let mut initial_sfen=rshogi_core::position::SFEN_HIRATE.to_string();let mut position_lines=Vec::<String>::new();let mut opening_frames=Vec::<serde_json::Value>::new();let mut in_position=false;let mut analysis=Analysis::default();
+        let mut committed=false;let mut logged_in=false;let mut summary_complete=false;let mut summary_open=false;let mut game_started=false;let mut have_side=false;let mut have_position=false;let mut termination_reason=String::new();let mut game_id=String::new();let mut black=String::new();let mut white=String::new();let mut record: Option<AsyncRecord>=None;
+        let mut side='+';let mut common_time=RawTime::default();let mut side_time=[RawTime::default();2];let mut time_target=None;let mut inc=[0u64;2];let mut byo=0u64;let mut clocks=[0u64;2];let mut moves=Vec::<String>::new();let mut pos=rshogi_csa::initial_position();let mut initial_sfen=rshogi_core::position::SFEN_HIRATE.to_string();let mut position_lines=Vec::<String>::new();let mut opening_frames=Vec::<serde_json::Value>::new();let mut in_position=false;let mut analysis=Analysis::default();let mut turn_started=std::time::Instant::now();let mut terminal_elapsed_ms=None;
         loop {
             if !committed && drain.as_ref().is_some_and(|d| *d.borrow()) {let _ = write.write_all(b"LOGOUT\n").await; console_progress(status,"ログアウト処理を行いました。");if let Some(s)=status{s("drained");}return Ok(PlayOutcome::Drained);}
             tokio::select! { biased;
@@ -796,9 +830,9 @@ async fn play(
                     match tokio::time::timeout(Duration::from_secs(10), replies.lock().await.recv()).await { Ok(Some(()))=>{}, _=>return Err(fail("マッチングの確認がタイムアウトしました")) }
                 }write.write_all(b"AGREE\n").await?;summary_open=false;summary_complete=true;prestart_timeout.as_mut().reset(tokio::time::Instant::now()+Duration::from_secs(30));console_progress(status,"対局条件を受け付けました。開始を待っています...");}
                 if line.starts_with("START:") {
-                    if !summary_complete||game_started{return Err(io::Error::new(io::ErrorKind::InvalidInput,"対局開始の受信順序が不正です。"));}game_started=true;*started=true;
+                    if !summary_complete||game_started{return Err(io::Error::new(io::ErrorKind::InvalidInput,"対局開始の受信順序が不正です。"));}game_started=true;*started=true;turn_started=std::time::Instant::now();
                     if game_id.is_empty() {game_id=line.trim_start_matches("START:").to_owned();}
-                    if let Some(dir)=record_dir {match CsaRecord::create(dir,&game_id,&black,&white,&position_lines) {Ok(r)=>record=Some(r),Err(e)=>report_record_error(None,&format!("棋譜を保存できません: {e}"))}}
+                    if let Some(dir)=record_dir {record=Some(AsyncRecord::start(dir.to_path_buf(),game_id.clone(),black.clone(),white.clone(),position_lines.clone()));}
                     if show_board {if app_mode(){app_event(serde_json::json!({"event":"game_started","side":if side=='+' {"black"}else{"white"},"game_id":game_id,"board":format_board(&pos),"sfen":pos.to_sfen(),"ply":display_ply(&initial_sfen,moves.len()),"frames":opening_frames,"black":black,"white":white,"clocks":clocks,"increment":if inc[0]==inc[1]{Some(inc[0])}else{None},"increments":inc,"byoyomi":byo}));}else{println!("対局開始（{}）\n{}",if side=='+' {"先手"} else {"後手"},format_board(&pos));}}
                 }
                 if line.starts_with("START:") && (pos.side_to_move==rshogi_csa::Color::Black)==(side=='+') { go(engine,&initial_sfen,&moves,clocks,inc,byo,false).await?;thinking=true;analysis=Analysis::default();if app_mode(){app_event(serde_json::json!({"event":"search_state","mode":"thinking"}));} }
@@ -820,7 +854,7 @@ async fn play(
                     if show_board && app_mode() {if let Some(comment)=line.split(",'*").nth(1){let mut words=comment.split_whitespace();words.next();let mut pv_pos=pos.clone();for item in words.take(32){let Ok(pv_move)=rshogi_csa::csa_move_to_usi(item,&pv_pos) else{break};if pv_pos.apply_csa_move(item).is_err(){break;}wire_pv.push(pv_move);}}}
                     pos.apply_csa_move(token).map_err(|e|fail(e.to_string()))?;moves.push(usi);
                     let mover=usize::from(line.starts_with('-'));let elapsed=line.split(',').find_map(|s|s.strip_prefix('T')).and_then(|s|s.parse::<u64>().ok()).unwrap_or(0);
-                    clocks[mover]=clocks[mover].saturating_add(inc[mover]).saturating_sub(elapsed);
+                    clocks[mover]=clocks[mover].saturating_add(inc[mover]).saturating_sub(elapsed);turn_started=std::time::Instant::now();
                     if show_board {if app_mode(){let evaluation=line.split(",'*").nth(1).and_then(|s|s.split_whitespace().next()).and_then(|s|s.parse::<i32>().ok());app_event(serde_json::json!({"event":"move","move":moves.last().unwrap(),"ply":display_ply(&initial_sfen,moves.len()),"sfen":pos.to_sfen(),"board":format_board(&pos),"clocks":clocks,"elapsed":elapsed,"evaluation":evaluation,"pv":wire_pv}));}else{println!("指し手: {}\n{}",moves.last().unwrap(),format_board(&pos));}}
                     if token.starts_with(if side=='+' {'-'} else {'+'}) {
                         analysis=Analysis::default();
@@ -847,12 +881,15 @@ async fn play(
                         }
                     }
                 }
+                if line.starts_with('%') {terminal_elapsed_ms=line.split(',').find_map(|s|s.strip_prefix('T')).and_then(|s|s.parse::<u64>().ok()).map(|v|v.saturating_mul(1000));}
                 if line.starts_with('%') || line.starts_with('#') {if let Some(r)=record.as_mut(){r.write_wire(&line);}}
                 if line.starts_with('#') && !["#WIN","#LOSE","#DRAW","#CENSORED"].contains(&line.as_str()) {termination_reason=line.clone();}
                 if ["#WIN","#LOSE","#DRAW","#CENSORED"].contains(&line.as_str()) {
                     if !game_started{return Err(fail("対局開始前に中止されました。接続し直します。"));}
-                    if let Some(r)=record.take(){r.finish(&termination_reason,&line,side,&black,&white);}
-                    if status.is_none(){app_event(serde_json::json!({"event":"game_finished","result":line,"reason":termination_reason}));}
+                    let elapsed=terminal_elapsed_ms.unwrap_or_else(||u64::try_from(turn_started.elapsed().as_millis()).unwrap_or(u64::MAX));
+                    if status.is_none(){app_event(serde_json::json!({"event":"game_ending","reason":termination_reason,"terminal_elapsed_ms":elapsed}));}
+                    if let Some(r)=record.take(){r.finish(&termination_reason,&line,side,&black,&white).await;}
+                    if status.is_none(){app_event(serde_json::json!({"event":"game_finished","result":line,"reason":termination_reason,"terminal_elapsed_ms":elapsed}));}
                     console_progress(status, match line.as_str() {"#WIN"=>"対局終了: 勝ち", "#LOSE"=>"対局終了: 負け", "#DRAW"=>"対局終了: 引き分け", "#CENSORED" if termination_reason=="#MAX_MOVES"=>"対局終了: 引き分け（最大手数）", _=>"対局終了: 中断"});
                     if thinking || pondering.is_some() || ponder_stopping {
                         let send_stop=!ponder_stopping;
@@ -1041,7 +1078,7 @@ struct Analysis {
     pv: Vec<String>,
     display_score: Option<String>,
     candidates: std::collections::HashMap<String, Candidate>,
-    pending_part: Option<(u32, u32, Candidate)>,
+    pending_parts: std::collections::HashMap<(u32, u32), Candidate>,
 }
 impl Analysis {
     fn update(&mut self, line: &str) {
@@ -1051,17 +1088,19 @@ impl Analysis {
         let multipv=fields.iter().position(|v|*v=="multipv").map(|i|fields.get(i+1).and_then(|v|v.parse::<u32>().ok())).unwrap_or(Some(1));
         // Pair split messages only when both identify the same depth and
         // MultiPV slot; unrelated or ambiguous updates must not share scores.
-        if (snapshot.score.is_some() || !snapshot.pv.is_empty()) && (snapshot.depth.is_none() || multipv.is_none()) {self.pending_part=None;}
+        if (snapshot.score.is_some() || !snapshot.pv.is_empty()) && (snapshot.depth.is_none() || multipv.is_none()) {self.pending_parts.clear();}
         if let (Some(depth),Some(slot))=(snapshot.depth,multipv) {
+            if snapshot.score.is_some() || !snapshot.pv.is_empty(){self.pending_parts.retain(|(d,n),_|*n!=slot||*d==depth);}
             if snapshot.score.is_some() != !snapshot.pv.is_empty() {
                 let partial=Candidate{score:snapshot.score,display_score:snapshot.display_score.clone(),pv:snapshot.pv.clone()};
-                if let Some((d,n,previous))=self.pending_part.take() {
-                    if d==depth && n==slot && previous.score.is_some()!=partial.score.is_some() {
+                if let Some(previous)=self.pending_parts.remove(&(depth,slot)) {
+                    if previous.score.is_some()!=partial.score.is_some() {
                         let (score,pv)=if partial.score.is_some(){(partial,previous)}else{(previous,partial)};
                         if let Some(first)=pv.pv.first(){self.candidates.insert(first.clone(),Candidate{score:score.score,display_score:score.display_score,pv:pv.pv});}
-                    } else {self.pending_part=Some((depth,slot,partial));}
-                } else {self.pending_part=Some((depth,slot,partial));}
-            } else if snapshot.score.is_some() && !snapshot.pv.is_empty() {self.pending_part=None;}
+                    } else {self.pending_parts.insert((depth,slot),partial);}
+                } else {self.pending_parts.insert((depth,slot),partial);}
+                if self.pending_parts.len()>512 {self.pending_parts.clear();}
+            } else if snapshot.score.is_some() && !snapshot.pv.is_empty() {self.pending_parts.remove(&(depth,slot));}
         }
         if let Some(first)=snapshot.pv.first() {
             if snapshot.score.is_some() {

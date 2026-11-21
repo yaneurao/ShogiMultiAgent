@@ -11,7 +11,7 @@ for line in sys.stdin:
  line=line.strip()
  if line=='usi': print('usiok',flush=True)
  elif line=='isready': print('readyok',flush=True)
- elif line.startswith('go '): print('info score cp 123 pv 7g7f 3c3d',flush=True);print('bestmove 7g7f',flush=True)
+ elif line.startswith('go '): print('engine diagnostic',file=sys.stderr,flush=True);print('info score cp 123 pv 7g7f 3c3d',flush=True);print('bestmove 7g7f',flush=True)
  elif line=='quit': break
 ''');e.chmod(0o755)
  for mode in ['q','eof','max','resign','sennichite','stripped','plain_draw']:
@@ -26,7 +26,7 @@ for line in sys.stdin:
    out,err=p.communicate(timeout=20);events=[json.loads(line) for line in out.splitlines()];types=[e['event'] for e in events]
    assert p.returncode==0,(out,err);assert 'private-secret' not in out+err
    for name in ['state','game_started','analysis','move','game_finished','record','exited']:assert name in types,events
-   assert any(e.get('state')=='waiting' for e in events);assert next(e for e in events if e['event']=='analysis')['score']=='123';assert next(e for e in events if e['event']=='move')['ply']==1
+   assert any(e.get('event')=='engine_log' and 'engine diagnostic' in e.get('message','') for e in events);assert any(e.get('state')=='waiting' for e in events);assert next(e for e in events if e['event']=='analysis')['score']=='123';assert next(e for e in events if e['event']=='move')['ply']==1
    start=next(e for e in events if e['event']=='game_started');move=next(e for e in events if e['event']=='move');assert start['frames'][0]['ply']==0 and start['black']=='Test';assert move['clocks']==[62,60] and move['pv']==([] if mode=='stripped' else ['7g7f','3c3d']);assert next(e for e in events if e['event']=='analysis')['evaluation']==123
    record=Path(next(e for e in events if e['event']=='record')['path']);assert record.exists()
    csa=record.read_text()

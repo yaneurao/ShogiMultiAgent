@@ -10,7 +10,7 @@ for line in sys.stdin:
  line=line.strip()
  if line=='usi':print('usiok',flush=True)
  elif line=='isready':print('readyok',flush=True)
- elif line.startswith('go '):time.sleep(.2);print('info depth 3 score cp 1 pv 7g7f',flush=True);print('bestmove 7g7f',flush=True)
+ elif line.startswith('go '):time.sleep(.2);print('diagnostic after GUI exit',file=sys.stderr,flush=True);print('info depth 3 score cp 1 pv 7g7f',flush=True);print('bestmove 7g7f',flush=True)
  elif line=='quit':break
 ''');engine.chmod(0o755)
  server=socket.socket();server.bind(('127.0.0.1',0));server.listen();server.settimeout(10)

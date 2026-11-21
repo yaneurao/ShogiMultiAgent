@@ -1,0 +1,14 @@
+'use strict';
+const {waitForAsync}=require('./wait_for_async.cjs');
+const {_electron:electron}=require(process.env.PLAYWRIGHT_MODULE),assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path');
+(async()=>{const root=path.resolve(__dirname,'..'),tmp=fs.mkdtempSync(path.join(os.tmpdir(),'sma-final-clock-')),project=path.join(tmp,'project'),engine=path.join(tmp,'engine');fs.mkdirSync(project);fs.cpSync(path.join(root,'app'),path.join(project,'app'),{recursive:true});fs.copyFileSync(path.join(root,'package.json'),path.join(project,'package.json'));fs.mkdirSync(path.join(project,'agent'));fs.writeFileSync(engine,'engine');const fake=path.join(project,'agent','usi-agent');fs.writeFileSync(fake,`#!/usr/bin/env python3
+import json,os,sys,time
+json.loads(sys.stdin.readline())
+def emit(event,**v):print(json.dumps(dict(event=event,**v)),flush=True)
+emit('game_started',side='black',game_id='clock',black='Test',white='Other',sfen='lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1',ply=0,clocks=[4,60],byoyomi=0,increment=0)
+time.sleep(2)
+emit('game_ending',reason='#RESIGN' if os.environ.get('CLOCK_MODE')=='resign' else '#TIME_UP',terminal_elapsed_ms=1000)
+time.sleep(2.8)
+emit('game_finished',result='#LOSE',reason='#RESIGN' if os.environ.get('CLOCK_MODE')=='resign' else '#TIME_UP',terminal_elapsed_ms=1000)
+`);fs.chmodSync(fake,0o755);let app;
+try{app=await electron.launch({executablePath:path.join(root,'node_modules/electron/dist/electron'),args:['--no-sandbox','--password-store=basic',project],env:{...process.env,HOME:tmp,XDG_CONFIG_HOME:path.join(tmp,'config')}});const page=await app.firstWindow();const id=await page.evaluate(({engine})=>arena.save({label:'Test',name:'Test',host:'example:4081',engine,pool:'test',options:''}),{engine});await page.evaluate(id=>arena.start(id),id);await page.locator('#view-tab-participation').click();await waitForAsync(page,async()=>(await arena.state()).sessions.some(s=>s.gameInProgress));await page.locator('#clocks').waitFor();await page.waitForTimeout(3800);const before=await page.locator('#clocks').textContent();await waitForAsync(page,async()=>(await arena.records()).length>0);await page.waitForTimeout(400);const after=await page.locator('#clocks').textContent();console.log('before final save:',before,'after:',after);const expected=process.env.CLOCK_MODE==='resign'?3:0;assert(before.includes(String(expected).padStart(2,'0')+'秒'));assert(after.includes(String(expected).padStart(2,'0')+'秒'));const record=(await page.evaluate(()=>arena.records()))[0],game=await page.evaluate(id=>arena.recordGame(id),record.id);assert.equal(game.finalClocks[0],expected);console.log('PASS: final clock remains fixed during and after record saving');}finally{if(app)await app.close();fs.rmSync(tmp,{recursive:true,force:true,maxRetries:10,retryDelay:100});}})().catch(e=>{console.error(e);process.exitCode=1});

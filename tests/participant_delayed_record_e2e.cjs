@@ -1,0 +1,15 @@
+'use strict';
+const {waitForAsync}=require('./wait_for_async.cjs');
+const {_electron:electron}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
+const assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path');
+(async()=>{const root=path.resolve(__dirname,'..'),tmp=fs.mkdtempSync(path.join(os.tmpdir(),'delayed-record-')),project=path.join(tmp,'project'),engine=path.join(tmp,'engine');fs.mkdirSync(project);fs.cpSync(path.join(root,'app'),path.join(project,'app'),{recursive:true});fs.copyFileSync(path.join(root,'package.json'),path.join(project,'package.json'));fs.mkdirSync(path.join(project,'agent'));fs.writeFileSync(engine,'engine');const fake=path.join(project,'agent','usi-agent');fs.writeFileSync(fake,`#!/usr/bin/env python3
+import json,os,sys,time
+cfg=json.loads(sys.stdin.readline());p=os.path.join(cfg['record_dir'],'late.csa')
+with open(p,'w') as f:f.write('V2.2\\n')
+def emit(event,**v):print(json.dumps(dict(event=event,**v)),flush=True)
+emit('game_started',side='black',game_id='late',black='Test',white='Other',sfen='lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1',ply=0,clocks=[60,60])
+time.sleep(.5);emit('record',path=p);sys.stdin.readline()
+`);fs.chmodSync(fake,0o755);const options={executablePath:path.join(root,'node_modules/electron/dist/electron'),args:['--no-sandbox','--password-store=basic',project],env:{...process.env,HOME:tmp,XDG_CONFIG_HOME:path.join(tmp,'config')}};let app;
+ try{app=await electron.launch(options);let page=await app.firstWindow();const id=await page.evaluate(({engine})=>arena.save({label:'遅延',name:'Test',host:'example:4081',engine,pool:'test',options:''}),{engine});const session=await page.evaluate(id=>arena.start(id),id);await waitForAsync(page,async id=>(await arena.game(id))?.recordPath?.endsWith('late.csa'),session);const record=(await page.evaluate(id=>arena.game(id),session)).recordPath;const dir=path.join(tmp,'config','shogizone-participant','game-history','pending');let journal;for(let i=0;i<100;i++){const names=fs.existsSync(dir)?fs.readdirSync(dir).filter(n=>n.endsWith('.ndjson')):[];journal=names.map(n=>path.join(dir,n)).find(n=>fs.readFileSync(n,'utf8').includes('"type":"record"'));if(journal)break;await new Promise(r=>setTimeout(r,50));}assert(journal,'late record path must be journaled');const exit=new Promise(r=>app.process().once('exit',r));app.process().kill('SIGKILL');await exit;app=await electron.launch(options);page=await app.firstWindow();await waitForAsync(page,async()=>(await arena.records()).some(r=>r.recordPath&&r.result==='#UNKNOWN'));const recovered=(await page.evaluate(()=>arena.records()))[0];assert.equal(recovered.recordPath,record);assert(recovered.recordError);console.log('PASS: late record path is saved with the active game and survives recovery');
+ }finally{if(app)app.process().kill('SIGKILL');fs.rmSync(tmp,{recursive:true,force:true,maxRetries:10,retryDelay:100});}
+})().catch(e=>{console.error(e);process.exitCode=1;});
