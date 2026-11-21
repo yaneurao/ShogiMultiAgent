@@ -8,12 +8,12 @@ app.setName('ShogiMultiAgent');
 app.setPath('userData',path.join(app.getPath('appData'),'shogizone-participant'));
 const singleInstance=app.requestSingleInstanceLock();if(!singleInstance)app.quit();
 app.on('second-instance',()=>{if(windowRef&&!windowRef.isDestroyed()){if(windowRef.isMinimized())windowRef.restore();windowRef.show();windowRef.focus();}});
-let windowRef,profiles=[],closing=false,appSettings={disconnectSelfPlay:false},nextSessionOrder=0;const sessions=new Map(),startingProfiles=new Set();
+let windowRef,profiles=[],closing=false,appSettings={disconnectSelfPlay:false,defaultRecordDir:''},nextSessionOrder=0;const sessions=new Map(),startingProfiles=new Set();
 const file=()=>path.join(app.getPath('userData'),'connections.json');
 const settingsFile=()=>path.join(app.getPath('userData'),'settings.json');
 const historyDir=()=>path.join(app.getPath('userData'),'game-history');
 const pendingDir=()=>path.join(historyDir(),'pending');
-const defaultRecordDir=()=>path.join(app.getPath('documents'),'ShogiMultiAgent','kif');
+const defaultRecordDir=()=>appSettings.defaultRecordDir||path.join(app.getPath('documents'),'ShogiMultiAgent','kif');
 const records=new Map();let historyWrites=Promise.resolve(),historyReady=Promise.resolve(),historyLoading=true,historyRecoveryPending=false,historyLoadErrors=0;let releasePendingScan;const pendingScanReady=new Promise(resolve=>{releasePendingScan=resolve;});
 function definitiveResult(record){return ['#WIN','#LOSE','#DRAW'].includes(record.result)||(record.result==='#CENSORED'&&record.reason==='#MAX_MOVES');}
 function mergeGameData(previous,current){
@@ -148,14 +148,15 @@ async function start(id){
 }
 app.whenReady().then(async()=>{
  if(!singleInstance)return;
- try{const value=JSON.parse(await fs.readFile(settingsFile(),'utf8'));appSettings.disconnectSelfPlay=value.disconnectSelfPlay===true;}catch(e){if(e.code!=='ENOENT'){dialog.showErrorBox('アプリ設定を読み込めません',e.message);app.quit();return;}}
+ try{const value=JSON.parse(await fs.readFile(settingsFile(),'utf8'));appSettings.disconnectSelfPlay=value.disconnectSelfPlay===true;if(typeof value.defaultRecordDir==='string'&&(!value.defaultRecordDir||(path.isAbsolute(value.defaultRecordDir)&&!/[\x00-\x1f\x7f]/.test(value.defaultRecordDir))))appSettings.defaultRecordDir=value.defaultRecordDir;}catch(e){if(e.code!=='ENOENT'){dialog.showErrorBox('アプリ設定を読み込めません',e.message);app.quit();return;}}
  try{const value=JSON.parse(await fs.readFile(file(),'utf8'));if(Array.isArray(value))profiles=value;}catch(e){if(e.code!=='ENOENT'){dialog.showErrorBox('設定を読み込めません',e.message);app.quit();return;}}
 
  windowRef=new BrowserWindow({width:1350,height:860,minWidth:720,minHeight:560,title:'ShogiMultiAgent',icon:path.join(__dirname,'assets','icon.png'),webPreferences:{preload:path.join(__dirname,'preload.js'),contextIsolation:true,nodeIntegration:false,sandbox:true}});
  windowRef.setMenuBarVisibility(false);windowRef.loadFile(path.join(__dirname,'index.html'));
  windowRef.on('close',e=>{if(!closing&&(startingProfiles.size||[...sessions.values()].some(s=>s.child))){e.preventDefault();windowRef.webContents.send('close-requested');}});
  ipcMain.handle('state',()=>state());
- ipcMain.handle('save-app-settings',(_e,input)=>changeProfiles(async()=>{if(typeof input?.disconnectSelfPlay!=='boolean')throw Error('アプリ設定が不正です。');await fs.mkdir(app.getPath('userData'),{recursive:true});const temp=settingsFile()+'.tmp';const next={disconnectSelfPlay:input.disconnectSelfPlay};await fs.writeFile(temp,JSON.stringify(next,null,2),{mode:0o600});await fs.rename(temp,settingsFile());appSettings=next;notify();return next;}));
+ ipcMain.handle('save-app-settings',(_e,input)=>changeProfiles(async()=>{if(typeof input?.disconnectSelfPlay!=='boolean'||(input.defaultRecordDir!==undefined&&typeof input.defaultRecordDir!=='string'))throw Error('アプリ設定が不正です。');const directory=input.defaultRecordDir===undefined?appSettings.defaultRecordDir:input.defaultRecordDir.trim();if(directory&&(!path.isAbsolute(directory)||/[\x00-\x1f\x7f]/.test(directory)))throw Error('棋譜のデフォルト保存先は絶対パスで指定してください。');await fs.mkdir(app.getPath('userData'),{recursive:true});const temp=settingsFile()+'.tmp';const next={disconnectSelfPlay:input.disconnectSelfPlay,defaultRecordDir:directory};await fs.writeFile(temp,JSON.stringify(next,null,2),{mode:0o600});await fs.rename(temp,settingsFile());appSettings=next;notify();return next;}));
+ ipcMain.handle('open-default-record-dir',async()=>{const dir=defaultRecordDir();try{await fs.mkdir(dir,{recursive:true});const error=await shell.openPath(dir);if(error)throw Error(error);}catch(e){throw Error('デフォルトの保存先を開けません: '+e.message);}});
  ipcMain.handle('records',()=>recordsList());
  ipcMain.handle('delete-records',(_e,ids,options={removeHistory:true,removeCsa:true})=>{
   if(!Array.isArray(ids)||ids.length>10000||ids.some(id=>typeof id!=='string'||!/^[a-f0-9]{64}$/.test(id)))throw Error('選択された棋譜が不正です。');

@@ -87,3 +87,6 @@ header{height:50px;padding:0 20px}header .brand{width:32px;height:32px;font-size
 .copy-icon svg{width:16px;height:16px;display:block;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linejoin:round}.copy-icon.copied{color:#126d64;background:#cceae1}
 
 #sessions .session-board{white-space:nowrap}#sessions .session-web{position:relative;width:28px;height:28px;padding:0;margin-left:4px;font:bold italic 21px/1 Arial,sans-serif;color:#126ab4;border-color:#a5c5d9;background:#eaf4fb;vertical-align:middle}#sessions .session-web::after{content:'';position:absolute;left:4px;right:3px;top:10px;height:7px;border:1px solid currentColor;border-radius:50%;transform:rotate(-28deg);pointer-events:none}#sessions .session-web:hover{background:#d9edf9}#sessions .session-web:disabled{color:#8d9ca3;background:#edf0f1}
+
+.app-setting-directory{display:block;margin:18px 0 6px;font-weight:bold}
+#default-record-dir-error{margin-top:6px}

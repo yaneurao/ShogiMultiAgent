@@ -28,7 +28,7 @@ Electron の contextIsolation と sandbox を有効にし、renderer の nodeInt
 
 ## 永続データ
 
-Windows では接続設定を %APPDATA%/shogizone-participant/connections.json、アプリ設定を同じフォルダの settings.json、履歴を同じフォルダの game-history/ に保存する。棋譜保存先を指定しない場合は %USERPROFILE%/Documents/ShogiMultiAgent/kif。これらの場所は既存ユーザーのデータを引き継ぐために維持している。変更するときは明示的な移行手段を用意する。
+Windows では接続設定を %APPDATA%/shogizone-participant/connections.json、アプリ設定を同じフォルダの settings.json、履歴を同じフォルダの game-history/ に保存する。棋譜のデフォルト保存先はアプリ設定で変更でき、未設定時は %USERPROFILE%/Documents/ShogiMultiAgent/kif。新規接続設定にはその時点のデフォルトを入力し、保存先が空の接続設定は開始時のデフォルトを使う。既存の個別保存先は変更しない。これらの場所は既存ユーザーのデータを引き継ぐために維持している。変更するときは明示的な移行手段を用意する。
 
 trip は Electron safeStorage で暗号化して設定に保存し、アダプターには標準入力で渡す。コマンドライン引数やログに平文を出さない。暗号化は保存時の保護であり、CSA の通信自体を暗号化するものではない。
 
