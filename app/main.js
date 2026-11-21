@@ -9,7 +9,7 @@ app.setName('ShogiMultiAgent');
 app.setPath('userData',path.join(app.getPath('appData'),'shogizone-participant'));
 const singleInstance=app.requestSingleInstanceLock();if(!singleInstance)app.quit();
 app.on('second-instance',()=>{if(windowRef&&!windowRef.isDestroyed()){if(windowRef.isMinimized())windowRef.restore();windowRef.show();windowRef.focus();}});
-let windowRef,profiles=[],closing=false,appSettings={disconnectSelfPlay:false,defaultRecordDir:''},nextSessionOrder=0;const sessions=new Map(),startingProfiles=new Set();
+let windowRef,profiles=[],closing=false,appSettings={disconnectSelfPlay:false,defaultRecordDir:'',showInfoString:true},nextSessionOrder=0;const sessions=new Map(),startingProfiles=new Set();
 const file=()=>path.join(app.getPath('userData'),'connections.json');
 const settingsFile=()=>path.join(app.getPath('userData'),'settings.json');
 const historyDir=()=>path.join(app.getPath('userData'),'game-history');
@@ -142,6 +142,7 @@ function eventFor(s,e){
  if(e.event==='move'){if(s.search?.mode==='pondering'&&s.search.sfen&&s.search.sfen!==e.sfen)s.search={mode:s.search.mode,rows:[]};if(s.game){const a=s.pending?.move===e.move?s.pending:null;s.game.frames.push({sfen:e.sfen,ply:e.ply,move:e.move,clocks:e.clocks,elapsed:e.elapsed,evaluation:e.evaluation??a?.evaluation,pv:e.pv?.length?e.pv:a?.pv,received:Date.now()});s.pending=null;}s.ply=e.ply;s.board=e.board;s.move=e.move;}
  if(e.event==='search_state'){const newSearch=e.mode==='pondering'||(e.mode==='thinking'&&s.search?.mode!=='pondering');s.search={...s.search,...(newSearch?{nodes:null,nps:null,metricsForNewSearch:true}:{}),mode:e.mode};}
  if(e.event==='search_metrics'){s.search={...s.search,nodes:e.nodes??s.search?.nodes,nps:e.nps??s.search?.nps};if(!s.search.metricsForNewSearch&&s.search?.sfen&&s.searchHistory?.has(s.search.sfen))s.searchHistory.set(s.search.sfen,s.search);}
+ if(e.event==='search_string'){const rows=s.search?.sfen===e.sfen?(s.search.rows||[]):[];s.search={...s.search,mode:e.mode||'thinking',sfen:e.sfen,rows:[{message:e.message},...rows].slice(0,100)};if(e.sfen&&s.searchHistory)s.searchHistory.set(e.sfen,s.search);}
  if(e.event==='analysis_update'){const rows=s.search?.sfen===e.sfen?(s.search.rows||[]):[];s.search={...s.search,metricsForNewSearch:false,mode:e.mode||'thinking',sfen:e.sfen,rows:[{depth:e.depth,seldepth:e.seldepth,time_ms:e.time_ms,score:e.score,bound:e.bound,pv:(e.pv||[]).slice(0,4),sfen:e.sfen},...rows].slice(0,100)};if(e.sfen&&s.searchHistory)s.searchHistory.set(e.sfen,s.search);if(e.mode!=='pondering'&&e.primary!==false&&e.score!=null){s.score=e.score;s.pv=e.pv||[];}}
  if(e.event==='analysis'){s.pending=e;s.score=e.score;s.pv=e.pv||[];s.move=e.move;}
  if(e.event==='game_ending'&&s.game)freezeGameClock(s.game,e);
@@ -175,14 +176,14 @@ async function start(id){
 }
 app.whenReady().then(async()=>{
  if(!singleInstance)return;
- try{const value=JSON.parse(await fs.readFile(settingsFile(),'utf8'));appSettings.disconnectSelfPlay=value.disconnectSelfPlay===true;if(typeof value.defaultRecordDir==='string'&&(!value.defaultRecordDir||(path.isAbsolute(value.defaultRecordDir)&&!/[\x00-\x1f\x7f]/.test(value.defaultRecordDir))))appSettings.defaultRecordDir=value.defaultRecordDir;}catch(e){if(e.code!=='ENOENT'){dialog.showErrorBox('アプリ設定を読み込めません',e.message);app.quit();return;}}
+ try{const value=JSON.parse(await fs.readFile(settingsFile(),'utf8'));appSettings.disconnectSelfPlay=value.disconnectSelfPlay===true;appSettings.showInfoString=value.showInfoString!==false;if(typeof value.defaultRecordDir==='string'&&(!value.defaultRecordDir||(path.isAbsolute(value.defaultRecordDir)&&!/[\x00-\x1f\x7f]/.test(value.defaultRecordDir))))appSettings.defaultRecordDir=value.defaultRecordDir;}catch(e){if(e.code!=='ENOENT'){dialog.showErrorBox('アプリ設定を読み込めません',e.message);app.quit();return;}}
  try{const value=JSON.parse(await fs.readFile(file(),'utf8'));if(Array.isArray(value))profiles=value;}catch(e){if(e.code!=='ENOENT'){dialog.showErrorBox('設定を読み込めません',e.message);app.quit();return;}}
 
  windowRef=new BrowserWindow({width:1350,height:860,minWidth:720,minHeight:560,title:'ShogiMultiAgent',icon:path.join(__dirname,'assets','icon.png'),webPreferences:{preload:path.join(__dirname,'preload.js'),contextIsolation:true,nodeIntegration:false,sandbox:true}});
  windowRef.setMenuBarVisibility(false);windowRef.loadFile(path.join(__dirname,'index.html'));
  windowRef.on('close',e=>{if(!closing&&(startingProfiles.size||[...sessions.values()].some(s=>s.child))){e.preventDefault();windowRef.webContents.send('close-requested');}});
  ipcMain.handle('state',()=>state());
- ipcMain.handle('save-app-settings',(_e,input)=>changeProfiles(async()=>{if(typeof input?.disconnectSelfPlay!=='boolean'||(input.defaultRecordDir!==undefined&&typeof input.defaultRecordDir!=='string'))throw Error('アプリ設定が不正です。');const directory=input.defaultRecordDir===undefined?appSettings.defaultRecordDir:input.defaultRecordDir.trim();if(directory&&(!path.isAbsolute(directory)||/[\x00-\x1f\x7f]/.test(directory)))throw Error('棋譜のデフォルト保存先は絶対パスで指定してください。');await fs.mkdir(app.getPath('userData'),{recursive:true});const temp=settingsFile()+'.tmp';const next={disconnectSelfPlay:input.disconnectSelfPlay,defaultRecordDir:directory};await fs.writeFile(temp,JSON.stringify(next,null,2),{mode:0o600});await fs.rename(temp,settingsFile());appSettings=next;notify();return next;}));
+ ipcMain.handle('save-app-settings',(_e,input)=>changeProfiles(async()=>{if(typeof input?.disconnectSelfPlay!=='boolean'||(input.showInfoString!==undefined&&typeof input.showInfoString!=='boolean')||(input.defaultRecordDir!==undefined&&typeof input.defaultRecordDir!=='string'))throw Error('アプリ設定が不正です。');const directory=input.defaultRecordDir===undefined?appSettings.defaultRecordDir:input.defaultRecordDir.trim();if(directory&&(!path.isAbsolute(directory)||/[\x00-\x1f\x7f]/.test(directory)))throw Error('棋譜のデフォルト保存先は絶対パスで指定してください。');await fs.mkdir(app.getPath('userData'),{recursive:true});const temp=settingsFile()+'.tmp';const next={disconnectSelfPlay:input.disconnectSelfPlay,defaultRecordDir:directory,showInfoString:input.showInfoString??appSettings.showInfoString};await fs.writeFile(temp,JSON.stringify(next,null,2),{mode:0o600});await fs.rename(temp,settingsFile());appSettings=next;notify();return next;}));
  ipcMain.handle('open-default-record-dir',async()=>{const dir=defaultRecordDir();try{await fs.mkdir(dir,{recursive:true});const error=await shell.openPath(dir);if(error)throw Error(error);}catch(e){throw Error('デフォルトの保存先を開けません: '+e.message);}});
  ipcMain.handle('records',()=>recordsList());
  ipcMain.handle('delete-records',(_e,ids,options={removeHistory:true,removeCsa:true})=>{

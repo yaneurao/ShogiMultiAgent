@@ -185,7 +185,7 @@ fn app_mode() -> bool { APP_MODE.load(std::sync::atomic::Ordering::Relaxed) }
 fn app_event(value: serde_json::Value) {
     if !app_mode()||APP_OUTPUT_FAILED.load(std::sync::atomic::Ordering::Relaxed){return;}
     let Some(output)=APP_OUTPUT.get() else {return};
-    let telemetry=matches!(value["event"].as_str(),Some("analysis_update" | "search_metrics" | "engine_log"));
+    let telemetry=matches!(value["event"].as_str(),Some("analysis_update" | "search_metrics" | "engine_log" | "search_string"));
     let mut state=output.queue.lock().unwrap_or_else(|e|e.into_inner());
     if state.pending.len()>=512 {
         if let Some(index)=state.pending.iter().position(|(_,is_telemetry)|*is_telemetry){state.pending.remove(index);}
@@ -1052,7 +1052,11 @@ fn format_board(position: &rshogi_csa::Position) -> String {
 // Each PV line is a separate snapshot; do not combine bounds or values from
 // earlier lines, nor display informational lines without a principal variation.
 fn emit_live_analysis(line: &str, mode: &str, sfen: &str, side: char) {
-    if !line.starts_with("info ") || line.split_whitespace().nth(1) == Some("string") { return; }
+    if line == "info string" || line.starts_with("info string ") {
+        app_event(serde_json::json!({"event":"search_string","mode":mode,"sfen":sfen,"message":line}));
+        return;
+    }
+    if !line.starts_with("info ") { return; }
     let fields: Vec<_> = line.split_whitespace().collect();
     let number = |name| fields.iter().position(|v| *v == name).and_then(|i| fields.get(i + 1)).and_then(|v| v.parse::<u64>().ok());
     let nodes = number("nodes");
