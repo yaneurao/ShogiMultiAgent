@@ -208,20 +208,22 @@ app.whenReady().then(async()=>{
   });historyWrites=operation.catch(()=>{});return operation;
  });
 
- ipcMain.handle('export-records',async(_e,ids)=>{
+ ipcMain.handle('export-records',async(event,ids)=>{
   if(!Array.isArray(ids)||ids.length>10000||!ids.length||ids.some(id=>typeof id!=="string"||!/^[a-f0-9]{64}$/.test(id)))throw Error('選択された棋譜が不正です。');
   if(historyLoading||historyRecoveryPending)throw Error('棋譜の読み込み・復旧が完了してから書き出してください。');
   const choice=await dialog.showOpenDialog(windowRef,{title:'棋譜の書き出し先',properties:['openDirectory','createDirectory']});
   if(choice.canceled||!choice.filePaths[0])return {canceled:true};
   const destination=choice.filePaths[0],unique=[...new Set(ids)];
+  let lastProgress=0;const progress=(completed,force=false)=>{const now=Date.now();if((force||now-lastProgress>=100)&&!event.sender.isDestroyed()){lastProgress=now;event.sender.send('export-records-progress',{completed,total:unique.length,destination});}};
+  progress(0,true);
   const operation=historyWrites.then(async()=>{const exported=[],failed=[];
-   for(const id of unique){const entry=records.get(id);if(!entry){failed.push({id,error:'棋譜が見つかりません。'});continue;}
+   for(const id of unique){try{const entry=records.get(id);if(!entry){failed.push({id,error:'棋譜が見つかりません。'});continue;}
     if([...sessions.values()].some(s=>s.gameInProgress&&s.game&&historyKey(s.host,s.game_id,s.game.black,s.game.white)===id)){failed.push({id,error:'対局中の棋譜は書き出せません。'});continue;}
     const sources=recordCandidates(entry);if(!sources.length){failed.push({id,error:entry.recordError||'CSAファイルが保存されていません。'});continue;}
     let copied=false,lastError='CSAファイルが見つかりません。';
     for(const source of sources){const name=path.basename(source),ext=path.extname(name),stem=path.basename(name,ext);for(let n=0;n<10000;n++){const filename=n===0?name:`${stem}-${n}${ext}`;try{await fs.copyFile(source,path.join(destination,filename),require('node:fs').constants.COPYFILE_EXCL);exported.push({id,filename});copied=true;break;}catch(e){if(e.code==='EEXIST'){lastError='同名ファイルが多すぎるため書き出せません。';continue;}if(e.code==='ENOENT'){lastError='CSAファイルまたは書き出し先が見つかりません。';break;}lastError='書き出しに失敗しました: '+e.message;break;}}if(copied)break;}
     if(!copied)failed.push({id,error:lastError});
-   }
+   }finally{progress(exported.length+failed.length,exported.length+failed.length===unique.length);}}
    return {canceled:false,destination,exported,failed};
   });historyWrites=operation.catch(()=>{});return operation;
  });
