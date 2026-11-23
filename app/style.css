@@ -94,3 +94,6 @@ header{height:50px;padding:0 20px}header .brand{width:32px;height:32px;font-size
 .live-search-string{white-space:pre;min-width:max-content}
 
 .export-dialog-content{padding:24px}.export-dialog-content progress{width:100%;margin:16px 0 4px;accent-color:#126d64}.export-dialog-content p{overflow-wrap:anywhere}.export-dialog-content #export-dialog-error{max-height:12em;overflow:auto;white-space:pre-wrap}
+
+.error-dialog-content{padding:24px}.error-dialog-content p{overflow-wrap:anywhere;white-space:pre-wrap}.error-dialog-content #error-dialog-message{max-height:50vh;overflow:auto}.error-details{color:#a33230;border-color:#e7b5b2}
+.state.login_error{color:#b3312e}

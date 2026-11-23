@@ -504,6 +504,7 @@ pub async fn run_with_control(
             s("connecting");
         }
         let mut game_started = false;
+        let mut authenticated = false;
         let result = play(
             &mut engine,
             &host,
@@ -514,11 +515,12 @@ pub async fn run_with_control(
             record_dir.as_deref(),
             ponder,
             &mut game_started,
+            &mut authenticated,
         )
         .await;
         if let Err(ref e) = result {
-            if matches!(e.kind(), io::ErrorKind::PermissionDenied | io::ErrorKind::InvalidInput) { return Err(io::Error::new(e.kind(), e.to_string())); }
-            app_event(serde_json::json!({"event":"state","state":"reconnecting","message":e.to_string()}));
+            if matches!(e.kind(), io::ErrorKind::PermissionDenied | io::ErrorKind::InvalidInput) { if !authenticated && e.kind()==io::ErrorKind::PermissionDenied {app_event(serde_json::json!({"event":"state","state":"login_error","message":e.to_string()}));} return Err(io::Error::new(e.kind(), e.to_string())); }
+            app_event(serde_json::json!({"event":"state","state":"reconnecting","phase":if authenticated {"game"} else {"login"},"message":e.to_string()}));
             log_stderr(&format!("agent: {e}"));
             if let Some(s) = &status {
                 s("reconnecting");
@@ -741,6 +743,7 @@ async fn play(
     record_dir: Option<&std::path::Path>,
     ponder_enabled: bool,
     started: &mut bool,
+    authenticated: &mut bool,
 ) -> io::Result<PlayOutcome> {
     let socket = tokio::time::timeout(Duration::from_secs(10), TcpStream::connect(host))
         .await
@@ -787,7 +790,7 @@ async fn play(
                 let line=line.ok_or_else(||fail("CSA connection closed"))??;
                 if line.starts_with("REJECT:") {return Err(fail("対局の開始が拒否されました。接続し直します。"));}
                 if line=="LOGIN:incorrect" {return Err(io::Error::new(io::ErrorKind::PermissionDenied,"ログインを拒否されました。プレイヤー名、対局条件、tripを確認してください。"));}
-                if line.starts_with("LOGIN:") && line.ends_with(" OK") {logged_in=true;if let Some(s)=status{s("waiting");}else{app_event(serde_json::json!({"event":"state","state":"waiting"}));console_progress(status,"LOGIN : OK　対局待機中");}}
+                if line.starts_with("LOGIN:") && line.ends_with(" OK") {logged_in=true;*authenticated=true;if let Some(s)=status{s("waiting");}else{app_event(serde_json::json!({"event":"state","state":"waiting"}));console_progress(status,"LOGIN : OK　対局待機中");}}
                 if let Some(v)=line.strip_prefix("Game_ID:"){game_id=v.to_string();}
                 if let Some(v)=line.strip_prefix("Name+:"){black=v.to_string();}
                 if let Some(v)=line.strip_prefix("Name-:"){white=v.to_string();}

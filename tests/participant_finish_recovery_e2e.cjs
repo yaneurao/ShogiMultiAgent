@@ -31,7 +31,7 @@ emit('game_finished',result='#WIN',reason='#RESIGN')
   const records=await page.evaluate(()=>arena.records()),finished=records.find(r=>r.label==='Finished'),interrupted=records.find(r=>r.label==='Interrupted');
   assert.equal(finished.result,'#WIN');assert.equal(finished.reason,'#RESIGN');assert.equal(finished.recordError,null);
   assert.equal(interrupted.result,'#UNKNOWN');assert.match(interrupted.recordError,/中断/);
-  await page.locator('#view-tab-records').click();const row=page.locator('#records tr.record-row').filter({hasText:'Interrupted'});await row.locator('.record-write-error').waitFor();assert(await row.getByRole('button',{name:'コピー'}).isDisabled());
+  await page.locator('#view-tab-records').click();const row=page.locator('#records tr.record-row').filter({hasText:'Interrupted'});await row.locator('.error-details').waitFor();assert(await row.getByRole('button',{name:'コピー'}).isDisabled());
   assert(await page.evaluate(async id=>{try{await arena.copyRecord(id);return false;}catch(e){return e.message.includes('中断');}},interrupted.id));
   console.log('PASS: journaled terminal result survives crash; interrupted CSA is flagged and blocked');
  }finally{if(app)await kill();fs.rmSync(tmp,{recursive:true,force:true,maxRetries:10,retryDelay:100});}

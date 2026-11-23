@@ -1,0 +1,14 @@
+'use strict';
+const {waitForAsync}=require('./wait_for_async.cjs');
+const {_electron:electron}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
+const assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path'),net=require('node:net');
+(async()=>{const root=path.resolve(__dirname,'..'),tmp=fs.mkdtempSync(path.join(os.tmpdir(),'login-errors-')),engine=path.join(tmp,'engine');fs.writeFileSync(engine,`#!/usr/bin/env python3
+import sys
+for line in sys.stdin:
+ line=line.strip()
+ if line=='usi': print('usiok',flush=True)
+ elif line=='isready': print('readyok',flush=True)
+ elif line=='quit': break
+`);fs.chmodSync(engine,0o755);const server=net.createServer(socket=>{socket.once('data',()=>socket.write('LOGIN:incorrect\n'));});await new Promise(r=>server.listen(0,'127.0.0.1',r));const unused=net.createServer();await new Promise(r=>unused.listen(0,'127.0.0.1',r));const unusedPort=unused.address().port;await new Promise(r=>unused.close(r));let app;
+try{app=await electron.launch({executablePath:path.join(root,'node_modules/electron/dist/electron'),args:['--no-sandbox','--password-store=basic',root],env:{...process.env,HOME:tmp,XDG_CONFIG_HOME:path.join(tmp,'config')}});const page=await app.firstWindow();const ids=await page.evaluate(async({engine,refused,rejected})=>Promise.all([['接続拒否',refused],['ログイン拒否',rejected]].map(([label,port],i)=>arena.save({label,name:'Test'+i,host:'127.0.0.1:'+port,engine,pool:'test',options:''}))),{engine,refused:unusedPort,rejected:server.address().port});for(const id of ids)await page.evaluate(id=>arena.start(id),id);await page.locator('#view-tab-participation').click();await waitForAsync(page,async()=>{const sessions=(await arena.state()).sessions;return sessions.length===2&&sessions.every(s=>s.status==='login_error'&&s.error);},null,{timeout:20000});for(const label of ['接続拒否','ログイン拒否']){const row=page.locator('#sessions tr').filter({hasText:label});await row.locator('.login_error').filter({hasText:'ログインエラー'}).waitFor();assert.equal(await row.locator('.error-details').count(),0);assert(!(await row.textContent()).includes('Connection refused'));await row.getByRole('button',{name:'盤面'}).click();await page.locator('#tabs button.active').filter({hasText:label}).waitFor();await page.waitForFunction(()=>document.querySelector('#log').textContent.length>0);}await page.locator('#sessions tr').filter({hasText:'ログイン拒否'}).getByRole('button',{name:'盤面'}).click();assert.match(await page.locator('#log').textContent(),/ログインを拒否/);console.log('PASS: connection and login failures show concise status and preserve diagnostic log');}
+finally{if(app)app.process().kill('SIGKILL');server.close();fs.rmSync(tmp,{recursive:true,force:true,maxRetries:10,retryDelay:100});}})().catch(e=>{console.error(e);process.exitCode=1;});
