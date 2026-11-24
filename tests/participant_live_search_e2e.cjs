@@ -14,6 +14,7 @@ for line in sys.stdin:
   print('info depth 32 seldepth 55 time 2345 nodes 1234 score cp 42 lowerbound nps 123456 pv 7g7f 3c3d 2g2f 8c8d 2f2e',flush=True)
   print('info depth 33 seldepth 56 time 12034 nodes 9876 score cp 35 upperbound nps 234567 pv 2g2f 8c8d',flush=True)
   print('info nodes 11111 nps 345678',flush=True)
+  print('info hashfull 721',flush=True)
   print('bestmove 7g7f',flush=True)
  elif line=='quit': break
 `);fs.chmodSync(engine,0o755);
@@ -32,7 +33,7 @@ for line in sys.stdin:
   assert.deepEqual(cells[0].slice(0,4),['00:12','33/56','35','++']);
   assert.deepEqual(cells[1].slice(0,4),['00:02','32/55','42','--']);
   assert.match(cells[0][4],/２六歩/);assert(!cells[1][4].includes('２五歩'));
-  assert.equal(await page.locator('#live-search-nodes').textContent(),'探索局面数: 11,111');assert.equal(await page.locator('#live-search-nps').textContent(),'nps: 345,678');
+  assert.equal(await page.locator('#live-search-nodes').textContent(),'探索局面数: 11,111');assert.equal(await page.locator('#live-search-nps').textContent(),'nps: 345,678');assert.equal(await page.locator('#live-search-hashfull').textContent(),'hash: 72.1%');
   assert(!((await page.locator('#live-search').textContent()).includes('Bound')));
   const columns=await page.locator('.live-search-row').evaluateAll(rows=>rows.map(row=>[...row.children].map(cell=>cell.getBoundingClientRect().left)));assert.deepEqual(columns[0],columns[1]);
   const geometry=await page.evaluate(()=>{const pane=document.querySelector('#live-search'),graph=document.querySelector('#analysis');graph.hidden=false;const before=[pane.getBoundingClientRect().height,graph.getBoundingClientRect().top];renderLiveSearch({ponder:false,search:{mode:'thinking',rows:Array(50).fill({depth:1,pv:[]})}});const after=[pane.getBoundingClientRect().height,graph.getBoundingClientRect().top];return {before,after,scroll:document.querySelector('.live-search-scroll').scrollHeight>document.querySelector('.live-search-scroll').clientHeight};});

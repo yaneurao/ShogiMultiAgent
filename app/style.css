@@ -97,3 +97,5 @@ header{height:50px;padding:0 20px}header .brand{width:32px;height:32px;font-size
 
 .error-dialog-content{padding:24px}.error-dialog-content p{overflow-wrap:anywhere;white-space:pre-wrap}.error-dialog-content #error-dialog-message{max-height:50vh;overflow:auto}.error-details{color:#a33230;border-color:#e7b5b2}
 .state.login_error{color:#b3312e}
+
+.live-search-heading{flex-wrap:wrap;overflow:visible}.live-search-metrics{flex-wrap:wrap;overflow:visible}

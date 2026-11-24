@@ -1064,7 +1064,8 @@ fn emit_live_analysis(line: &str, mode: &str, sfen: &str, side: char) {
     let number = |name| fields.iter().position(|v| *v == name).and_then(|i| fields.get(i + 1)).and_then(|v| v.parse::<u64>().ok());
     let nodes = number("nodes");
     let nps = number("nps");
-    if nodes.is_some() || nps.is_some() { app_event(serde_json::json!({"event":"search_metrics","nodes":nodes,"nps":nps})); }
+    let hashfull = number("hashfull").filter(|value| *value <= 1000);
+    if nodes.is_some() || nps.is_some() || hashfull.is_some() { app_event(serde_json::json!({"event":"search_metrics","nodes":nodes,"nps":nps,"hashfull":hashfull})); }
     if !fields.contains(&"pv") { return; }
     let mut live = Analysis::default();
     live.update_info(line, false);
