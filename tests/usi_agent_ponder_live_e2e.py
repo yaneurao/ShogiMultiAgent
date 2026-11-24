@@ -33,7 +33,7 @@ for line in sys.stdin:
    assert f.readline().startswith(b'LOGIN ')
    f.write(b'LOGIN:Test OK\nBEGIN Game_Summary\nGame_ID:test\nName+:Test\nName-:Other\nYour_Turn:+\nTotal_Time:60\nIncrement:2\nBEGIN Position\n\'ShogiZone_Initial_Ply:24\nPI\n+\nEND Position\nEND Game_Summary\n')
    assert f.readline()==b'AGREE\n';f.write(b'START:test\n');start=find(lambda e:e.get('event')=='game_started');initial=find(lambda e:e.get('event')=='analysis_update');assert start['frames'][0]['sfen']==initial['sfen'] and initial['sfen'].split()[-1]=='24',(start,initial);assert f.readline().startswith(b'+7776FU');f.write(b'+7776FU,T0\n')
-   find(lambda e:e.get('event')=='search_state' and e.get('mode')=='pondering')
+   ponder=find(lambda e:e.get('event')=='search_state' and e.get('mode')=='pondering');assert ponder['ponder_move']=='3c3d' and ponder['ponder_base_sfen'].split()[-1]=='25',ponder
    e=find(lambda e:e.get('event')=='analysis_update' and e.get('mode')=='pondering')
    assert e['depth']==17 and e['score']=='42' and e['pv']==['2g2f','8c8d'] and e['sfen'].split()[-1]=='26',e
    f.write(b'-3334FU,T0\n');find(lambda e:e.get('event')=='search_state' and e.get('mode')=='thinking');assert f.readline().startswith(b'+2726FU')

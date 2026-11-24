@@ -879,7 +879,7 @@ async fn play(
                                 let mut predicted=pos.clone();
                                 ponder_sfen=rshogi_csa::usi_move_to_csa(&expected,&predicted).ok().and_then(|m|predicted.apply_csa_move(&m).ok()).map(|_|predicted.to_sfen()).unwrap_or_default();
                                 ponder_analysis=Analysis::default();
-                                pondering=Some(expected);if app_mode(){app_event(serde_json::json!({"event":"search_state","mode":"pondering"}));}
+                                if app_mode(){app_event(serde_json::json!({"event":"search_state","mode":"pondering","ponder_move":expected,"ponder_base_sfen":pos.to_sfen()}));}pondering=Some(expected);
                             }
                         }
                     }
